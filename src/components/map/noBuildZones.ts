@@ -31,6 +31,14 @@ export const NO_BUILD_ZONE_RECTS: NoBuildZoneRect[] = [
   { id: 'mountain', top: 0, left: 28, width: 44, height: 13 },
   { id: 'oldtown', top: 35, left: 30, width: 32, height: 27 },
   { id: 'aquifer', top: 50, left: 0, width: 58, height: 50 },
+  /**
+   * University Campus. The map draws it as a rotated rectangle; this is the
+   * axis-aligned box around that outline, measured from the purple boundary in
+   * regional-map.png (x 67.9-84.8%, y 51.4-67.7%). The box is slightly larger
+   * than the drawn campus at its corners, which errs toward excluding a little
+   * more than the campus rather than a little less.
+   */
+  { id: 'campus', top: 52, left: 68, width: 17, height: 15 },
   /** West agricultural fields flanking Mountain Trails. */
   { id: 'agriculture', top: 2, left: 2, width: 28, height: 36 },
   /** East agricultural fields flanking Mountain Trails. */

@@ -280,3 +280,159 @@ export const GALLERY_M_PER_T_ORE = 0.0008;
 
 /** Minimum navigable length for the canoe benefit to be deliverable, m. */
 export const CANOE_MIN_NAVIGABLE_LENGTH_M = 800;
+
+/* ================================================================== *
+ * AIR
+ *
+ * Added 24 October 2026. Air was the last dimension still represented
+ * only by AIR_TIERS in src/data/mitigationConstants.ts, where a tier
+ * carried a bare "aqiWorst" number (0 / 100 / 150 / 200) with no
+ * source, no receptor and no distance. Participants could not check it
+ * and it could not be argued with.
+ *
+ * The structure below differs from water in one way that matters. The
+ * cistern is a threshold money cannot cross. Dust and stack emissions
+ * are the opposite: control technology is genuinely effective, so air
+ * is the dimension money CAN buy down — but only by spending every year
+ * it operates. Water fails as an irreversible loss; air fails as a
+ * recurring obligation that stops the moment the budget does.
+ * ================================================================== */
+
+/* ---- Fugitive dust: haul roads -------------------------------------
+ * Haul-road dust is the largest fugitive source at most surface
+ * operations, commonly over half of site PM10.
+ *
+ * US EPA AP-42 13.2.2 (unpaved industrial roads):
+ *   E = k (s/12)^a (W/3)^b
+ * For PM10: k = 1.5 lb/VMT, a = 0.9, b = 0.45. At silt s = 8.3% and
+ * mean vehicle weight W = 32 t, this gives ~1.5 lb/VMT ~ 0.42 kg/VKT
+ * uncontrolled. */
+export const HAUL_ROAD_PM10_KG_PER_VKT = 0.42;
+
+/** AP-42 gives PM2.5 for road dust as about a tenth of PM10. */
+export const PM25_FRACTION_OF_ROAD_PM10 = 0.10;
+
+/**
+ * Vehicle-kilometres travelled per tonne of material moved.
+ * CALIBRATION: ~4 km of loaded-plus-empty haulage per 1000 t, which is
+ * a short surface haul from portal to plant and dump, consistent with
+ * an underground operation whose surface movements are modest.
+ */
+export const HAUL_VKT_PER_T_MOVED = 0.004;
+
+/* ---- Fugitive dust: handling and wind erosion ---------------------- */
+
+/**
+ * Crushing, conveying, transfer and stockpiling, g PM10 per tonne
+ * handled, uncontrolled. AP-42 13.2.4 aggregate handling and 11.19.2
+ * crushed stone processing sum to roughly this for a primary and
+ * secondary circuit with open transfer points.
+ */
+export const HANDLING_PM10_G_PER_T = 12;
+
+/** Handling dust is coarser than combustion but finer than road dust. */
+export const PM25_FRACTION_OF_HANDLING_PM10 = 0.15;
+
+/**
+ * Wind erosion from exposed waste dump and tailings surfaces,
+ * kg PM10 per hectare per year. Active unvegetated tailings beaches are
+ * the worst dust source on many sites. Ties the air ledger to the waste
+ * ledger's footprint: more land disturbed is more dust, every year.
+ */
+export const WIND_EROSION_PM10_KG_PER_HA_YR = 400;
+
+/* ---- Diesel ---------------------------------------------------------
+ * Diesel particulate is almost entirely PM2.5 and is the fraction most
+ * clearly tied to health effects. It is also the fraction that
+ * electrifying the haul fleet removes outright, which is how the
+ * workforce-training and energy-storage benefits reach this ledger.
+ */
+export const DIESEL_PM25_G_PER_T_MOVED = 1.2;
+
+/* ---- Process emissions by supply-chain tier -------------------------
+ * Additional stack emissions, g/s, uncontrolled, at nominal throughput.
+ * Refining roasts and acid-leaches: SO2 and acid mist. Processing mixes
+ * and coats cathode and anode material: fine particulate and solvent.
+ * Advanced manufacturing runs dry rooms and cell assembly: solvent
+ * dominated, little particulate.
+ *
+ * CALIBRATION against the tier structure already in the application
+ * rather than against a measured plant, and flagged as the weakest set
+ * of numbers in this module.
+ */
+export const TIER_PROCESS_PM25_G_PER_S: Record<string, number> = {
+  extraction: 0,
+  refining: 1.8,
+  processing: 2.6,
+  advanced_manufacturing: 2.9,
+};
+export const TIER_PROCESS_SO2_G_PER_S: Record<string, number> = {
+  extraction: 0,
+  refining: 6.0,
+  processing: 7.2,
+  advanced_manufacturing: 7.2,
+};
+
+/* ---- Control effectiveness ------------------------------------------
+ * The contrast with water. Watering unpaved roads gives 50-75% control
+ * and chemical stabilisers up to 90% (AP-42 13.2.2); enclosure and
+ * baghouses on transfer points reach 95-99%; scrubbers on roasting
+ * gases 90-95%. So the ceiling here is high, and the reason air is
+ * still a problem is not that control fails but that it must be paid
+ * for continuously.
+ */
+export const DUST_CONTROL_MAX_EFFECTIVENESS = 0.85;
+export const STACK_CONTROL_MAX_EFFECTIVENESS = 0.95;
+
+/** Spend scale, USD/yr. Effectiveness approaches max as 1 - exp(-s/scale). */
+export const AIR_CONTROL_SPEND_SCALE_USD = 2_500_000;
+
+/* ---- Meteorology and dispersion ------------------------------------ */
+
+/** Mean wind speed used in the Gaussian plume, m/s. */
+export const WIND_SPEED_M_PER_S = 3.0;
+
+/**
+ * Fraction of the year the wind blows from the workings toward a given
+ * receptor. A 30-degree sector with a mild prevailing direction. This
+ * is what converts a centreline worst case into an annual mean, and it
+ * is the number most worth replacing with a real wind rose in the twin.
+ */
+export const RECEPTOR_SECTOR_FREQUENCY = 0.15;
+
+/* ---- Receptor distances for air ------------------------------------
+ * PLACEHOLDER, as with the water receptors: these should come from the
+ * map once siting is expressed in kilometres. The Old Town distance is
+ * the same as the cistern's because they are the same place.
+ */
+export const DISTANCE_TO_OLD_TOWN_M = 2_000;
+export const DISTANCE_TO_CAMPUS_M = 3_500;
+
+/* ---- Thresholds -----------------------------------------------------
+ * Two of them, deliberately. The legal limit is what the developer must
+ * meet. The health guideline is what actually protects people. The gap
+ * between them is wide for PM2.5 — 25 against 5 — and a mine can sit
+ * lawfully inside it for forty years. Showing both is the point: a
+ * single "compliant" verdict would hide exactly the distributional
+ * question the framework exists to ask.
+ *
+ * EU limit values: Directive 2008/50/EC, Annex XI.
+ * Health guidelines: WHO global air quality guidelines, 2021.
+ */
+export const EU_LIMIT_PM10_ANNUAL_UG_M3 = 40;
+export const EU_LIMIT_PM25_ANNUAL_UG_M3 = 25;
+export const WHO_GUIDELINE_PM10_ANNUAL_UG_M3 = 15;
+export const WHO_GUIDELINE_PM25_ANNUAL_UG_M3 = 5;
+
+/**
+ * Benefits that reach the air ledger. Electrifying the haul fleet
+ * removes diesel particulate outright but does nothing for road dust,
+ * which is raised by the wheels of any vehicle, electric or not.
+ *
+ * It requires BOTH the workforce-training benefit and the energy-storage
+ * research benefit: the first supplies people who can maintain the
+ * fleet, the second the charging and storage it runs on. One without
+ * the other does not deliver it.
+ */
+export const ELECTRIFICATION_REQUIRES = ['workforce', 'research'] as const;
+export const ELECTRIFICATION_DIESEL_REMOVED_FRACTION = 0.9;

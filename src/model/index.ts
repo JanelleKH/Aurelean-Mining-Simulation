@@ -20,6 +20,7 @@ export * from './params.ts';
 export * from './hydrology.ts';
 export * from './water.ts';
 export * from './waste.ts';
+export * from './air.ts';
 export * from './vote.ts';
 export * from './footprint.ts';
 export * from './postClosure.ts';

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "model": "node scripts/model-matrix.ts"
+    "model": "node scripts/model-matrix.ts",
+    "check:fixes": "esbuild scripts/check-air-campus.ts --bundle --platform=node --format=esm --log-level=warning --outfile=node_modules/.tmp/check-fixes.mjs && node node_modules/.tmp/check-fixes.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

@@ -1,4 +1,10 @@
-export type NoBuildAreaId = 'none' | 'mountain' | 'oldtown' | 'aquifer' | 'agriculture';
+export type NoBuildAreaId =
+  | 'none'
+  | 'mountain'
+  | 'oldtown'
+  | 'aquifer'
+  | 'campus'
+  | 'agriculture';
 export type SelectableNoBuildId = Exclude<NoBuildAreaId, 'none'>;
 
 export interface NoBuildAreaDef {
@@ -7,9 +13,18 @@ export interface NoBuildAreaDef {
   description: string;
 }
 
-/** Legacy CSV id from before agriculture rename. */
+/**
+ * Legacy CSV ids.
+ *
+ * 'campus' is deliberately NOT aliased here. It used to be redirected to
+ * 'agriculture', which silently rewrote the zone: the regional map draws
+ * University Campus as its own purple-bordered region with its own legend
+ * entry, and the briefings offer it as a no-go zone, so the code was the thing
+ * that was wrong rather than the map or the briefing. Campus is a selectable
+ * zone again below, which also makes old result files read back correctly,
+ * since 'campus' in them always meant the campus.
+ */
 export const LEGACY_NO_BUILD_ALIASES: Record<string, SelectableNoBuildId | null> = {
-  campus: 'agriculture',
   /** Ore body was removed as a selectable no-go zone. */
   ore_body: null,
 };
@@ -31,6 +46,11 @@ export const NO_BUILD_AREAS: NoBuildAreaDef[] = [
     id: 'aquifer',
     label: 'Aquifer Systems',
     description: 'Exclude the aquifer systems area from mining.',
+  },
+  {
+    id: 'campus',
+    label: 'University Campus',
+    description: 'Exclude the university campus and its grounds from mining.',
   },
   {
     id: 'agriculture',
