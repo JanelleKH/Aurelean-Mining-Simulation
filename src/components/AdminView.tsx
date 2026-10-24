@@ -12,6 +12,7 @@ import {
   validateNoGoZoneFeasibility,
 } from '../data/noBuildAreas';
 import { getCommunityBenefit } from '../data/communityBenefits';
+import { computeWasteLedger, computeWaterLedger } from '../model/index';
 import {
   findIndustrialNoBuildConflicts,
   parseIndustrialPlacements,
@@ -35,6 +36,7 @@ interface DeveloperResult {
   capacity_mton: number;
   total_budget: number;
   final_water: number;
+  water_alloc: number;
   final_waste: number;
   selectedBenefitIds: string[];
   industrialPlacements: IndustrialPlacementRecord[];
@@ -116,6 +118,7 @@ const parseCSV = (text: string, type: 'community' | 'developer'): CommunityResul
     capacity_mton: Number(getCsvField(header, values, 'capacity_mton') || values[1]),
     total_budget: Number(getCsvField(header, values, 'total_budget') || values[2]),
     final_water: Number(waterRaw || values[6]),
+    water_alloc: Number(getCsvField(header, values, 'water_alloc') || 0),
     final_waste: Number(wasteRaw || values[7]),
     selectedBenefitIds: benefitIds,
     industrialPlacements: parseIndustrialPlacements(industrialRaw),
@@ -148,8 +151,6 @@ interface FeasibilityResult {
   };
 }
 
-const WATER_LIMIT_M3 = 800_000;
-const WASTE_LIMIT_TON = 5_000_000;
 
 function benefitLabel(id: string): string {
   return getCommunityBenefit(id)?.label ?? id;
@@ -236,45 +237,83 @@ function buildFeasibilityAnalysis(
   let envVerdict: SectionVerdict = 'pass';
 
   envDetails.push(
-    'We check whether developer mitigation is enough for what the community asked for: water and waste limits when sensitive benefits are selected, and full funding of requested benefits.'
+    'We read the water and waste ledgers in physical units and ask what actually breaks: how much is pumped against what the aquifer receives, whether the cistern and the farm wells survive it, how much rock and tailings the plan generates, whether the disturbed ground fits the licence, and whether the benefits the community asked for are funded. The three dimensions are reported separately and never added together.'
   );
 
-  const hasWaterBenefit = communityData.selectedBenefitIds.some(id =>
-    ['canoe', 'irrigation'].includes(id)
-  );
-  if (hasWaterBenefit) {
-    const waterK = (developerData.final_water / 1000).toFixed(0);
-    if (developerData.final_water <= WATER_LIMIT_M3) {
-      envDetails.push(
-        `Water: Community selected water-sensitive benefits (canoe or irrigation). Mining must use ≤ ${(WATER_LIMIT_M3 / 1000).toFixed(0)}k m³ — developer uses ${waterK}k m³. Pass.`
-      );
-    } else {
-      envVerdict = 'fail';
-      envDetails.push(
-        `Water: Community needs canoe or irrigation, but mining uses ${waterK}k m³ (limit ${(WATER_LIMIT_M3 / 1000).toFixed(0)}k m³). Not feasible.`
-      );
-    }
-  } else {
-    envDetails.push('Water: No water-sensitive community benefits selected — water limit not applied.');
+  // Water and waste now come from the physical ledgers in src/model rather than
+  // from two hard-coded limits (800,000 m3 and 5 Mt), which had no source and
+  // were applied only when the community happened to request a related benefit.
+  const waterLedger = computeWaterLedger({
+    mineSizeKm2: developerData.size_km2,
+    capacityTPerYr: developerData.capacity_mton,
+    waterMitigationSpendUsd: developerData.water_alloc,
+  });
+  const wasteLedger = computeWasteLedger({
+    mineSizeKm2: developerData.size_km2,
+    capacityTPerYr: developerData.capacity_mton,
+  });
+  const cistern = waterLedger.receptors[0];
+  const wells = waterLedger.receptors[1];
+
+  if (!waterLedger.timing.plausibleMinePlan) {
+    envVerdict = 'warn';
+    envDetails.push(
+      `Plan: this size and rate imply a ${waterLedger.timing.mineLifeYr.toFixed(0)}-year mine life, where a reserve of this size would normally be mined over about ${waterLedger.timing.taylorLifeYr.toFixed(0)} years. Not a plan anyone would fund.`
+    );
   }
 
-  const hasWasteBenefit = communityData.selectedBenefitIds.some(id =>
-    ['park', 'energy'].includes(id)
+  envDetails.push(
+    `Water balance: the mine pumps ${Math.round(waterLedger.mitigation.netDewateringM3PerDay).toLocaleString()} m3/day from the aquifer, which is ${waterLedger.balance.multipleOfRecharge.toFixed(1)} times its natural recharge.` +
+      (waterLedger.balance.spendingStorage
+        ? ` Above one, the shortfall comes out of stored water and the water table keeps falling: ${(waterLedger.balance.storageDepletedM3 / 1e6).toFixed(1)} million m3 over the life of the mine.`
+        : ' Within recharge, so the aquifer is not being drained.')
   );
-  if (hasWasteBenefit) {
-    const wasteM = (developerData.final_waste / 1_000_000).toFixed(1);
-    if (developerData.final_waste <= WASTE_LIMIT_TON) {
-      envDetails.push(
-        `Waste/land: Community selected park or energy benefits. Waste must stay ≤ ${(WASTE_LIMIT_TON / 1_000_000).toFixed(0)}M tons — developer produces ${wasteM}M tons. Pass.`
-      );
-    } else {
-      envVerdict = 'fail';
-      envDetails.push(
-        `Waste/land: Community needs clean land for parks or energy, but mining generates ${wasteM}M tons (limit ${(WASTE_LIMIT_TON / 1_000_000).toFixed(0)}M). Not feasible.`
-      );
-    }
+
+  if (cistern.verdict === 'lost') {
+    envVerdict = 'fail';
+    envDetails.push(
+      cistern.spendToSaveUsd === null
+        ? `Old Cistern: LOST. Drawdown of ${cistern.drawdownM.toFixed(2)} m against an available column of ${cistern.toleranceM.toFixed(2)} m, and no amount of grouting or reinjection reaches it. This is not a cost, it is a loss — only a smaller mine or a no-go zone avoids it.`
+        : `Old Cistern: LOST at the current mitigation spend. Drawdown ${cistern.drawdownM.toFixed(2)} m against ${cistern.toleranceM.toFixed(2)} m available. About $${(cistern.spendToSaveUsd / 1e6).toFixed(1)}M more on reinjection and grouting would hold it.`
+    );
+  } else if (cistern.verdict === 'at_risk') {
+    if (envVerdict === 'pass') envVerdict = 'warn';
+    envDetails.push(
+      `Old Cistern: holding, but close. Drawdown ${cistern.drawdownM.toFixed(2)} m of ${cistern.toleranceM.toFixed(2)} m available.`
+    );
   } else {
-    envDetails.push('Waste/land: No land-sensitive community benefits selected — waste limit not applied.');
+    envDetails.push(
+      `Old Cistern: holds. Drawdown ${cistern.drawdownM.toFixed(2)} m of ${cistern.toleranceM.toFixed(2)} m available${cistern.shieldedByBarrier ? ', with the compartment barrier intact' : ''}.`
+    );
+  }
+
+  if (wells.verdict === 'lost') {
+    if (envVerdict !== 'fail') envVerdict = 'warn';
+    envDetails.push(
+      `Agricultural wells: failing. Drawdown ${wells.drawdownM.toFixed(2)} m against ${wells.toleranceM.toFixed(2)} m of available drawdown.` +
+        (wells.spendToSaveUsd !== null
+          ? ` About $${(wells.spendToSaveUsd / 1e6).toFixed(1)}M would recover them — unlike the cistern, this harm answers to money.`
+          : '')
+    );
+  } else {
+    envDetails.push(
+      `Agricultural wells: yielding. Drawdown ${wells.drawdownM.toFixed(2)} m of ${wells.toleranceM.toFixed(2)} m.`
+    );
+  }
+
+  envDetails.push(
+    `Waste and land: ${(wasteLedger.tonnage.wasteRockT / 1e6).toFixed(1)} Mt of waste rock and ${(wasteLedger.tonnage.tailingsT / 1e6).toFixed(1)} Mt of tailings over the life of the mine, from ${(wasteLedger.tonnage.oreMinedT / 1e6).toFixed(1)} Mt of ore. Waste follows the tonnage mined, not the licence area.`
+  );
+
+  if (wasteLedger.footprint.exceedsLicenceArea) {
+    envVerdict = 'fail';
+    envDetails.push(
+      `Footprint: the dumps and impoundment need ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha, and the community licence allows ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. The plan does not fit the ground it has been given — either more tailings go underground as backfill, or the licence has to grow.`
+    );
+  } else {
+    envDetails.push(
+      `Footprint: ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha of disturbed ground against a licence of ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. Fits.`
+    );
   }
 
   const unfundedBenefits = communityData.selectedBenefitIds.filter(

@@ -214,6 +214,58 @@ export const TAYLOR_EXPONENT = 0.25;
 export const TAYLOR_PLAUSIBILITY_FACTOR = 2.0;
 
 /* ------------------------------------------------------------------ *
+ * Waste and tailings
+ * ------------------------------------------------------------------ */
+
+/**
+ * Strip ratio for an UNDERGROUND mine: tonnes of waste rock raised per tonne of
+ * ore. Observed: Wolfsberg 0.38:1, and the underground band in the priors
+ * research is 0.1-0.4:1. 0.25 is central.
+ *
+ * For contrast, the open-pit band is 3.5-8:1 (James Bay 3.6, Greenbushes 4.93,
+ * Barroso 5.2, Kathleen Valley 6.8, Pilgangoora 7.6, Keliber 5.0-9.7). The
+ * decision that this mine is underground is what makes the waste stream small
+ * and the water stream large.
+ */
+export const STRIP_RATIO_UNDERGROUND = 0.25;
+
+/**
+ * Mass yield inputs for spodumene concentration. y = feed x recovery /
+ * concentrate, validated to within a percentage point across seven operations
+ * in the priors research. At these values y = 15%, so tailings are 0.85 t per
+ * tonne of ore - the larger waste stream by mass, and one the old model did not
+ * represent at all.
+ */
+export const FEED_GRADE_LI2O = 0.012;
+export const RECOVERY_FRACTION = 0.72;
+export const CONCENTRATE_GRADE_LI2O = 0.0575;
+
+/**
+ * Share of tailings that cemented paste backfill can take underground. Binder
+ * content and void geometry cap this well below unity; 0.55 is a working figure
+ * and a CALIBRATION, not an observation.
+ *
+ * This is where the three ledgers meet. Backfill reduces the surface tailings
+ * footprint AND protects the Old Town from subsidence AND destroys the canoe
+ * route, because a backfilled gallery is not navigable. One parameter, three
+ * consequences pulling in different directions.
+ */
+export const BACKFILL_TAILINGS_UPTAKE = 0.55;
+
+/**
+ * Footprint fitted from tonnage, USGS Open-File Report 03-143:
+ * waste dump area (ha) = 0.59 x waste (Mt) + 16, at a 100 m lift;
+ * tailings area (ha) = 1.57 x tailings (Mt) + 13, at 50 m.
+ *
+ * Deriving area FROM tonnage is the correction. The old model did the reverse,
+ * setting waste from area.
+ */
+export const WASTE_DUMP_AREA_HA_PER_MT = 0.59;
+export const WASTE_DUMP_AREA_INTERCEPT_HA = 16;
+export const TAILINGS_AREA_HA_PER_MT = 1.57;
+export const TAILINGS_AREA_INTERCEPT_HA = 13;
+
+/* ------------------------------------------------------------------ *
  * Post-closure rebound
  * ------------------------------------------------------------------ */
 

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { LedgerPanel } from './LedgerPanel';
 import {
   MINE_SIZES,
   CAPACITIES,
@@ -398,6 +399,12 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
           </div>
         )}
       </div>
+
+      <LedgerPanel
+        mineSizeKm2={b.selectedSize.value}
+        capacityTPerYr={b.selectedCapacity.value}
+        waterMitigationSpendUsd={b.allocWater}
+      />
     </div>
   );
 };
