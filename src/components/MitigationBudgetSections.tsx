@@ -389,8 +389,15 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
               ? `Min locked ${formatCurrency(b.lockedAirFloor)} — drag up only · ${b.selectedFacility.label}`
               : 'Available in Step 3'}
           </span>
+          {/*
+            The AQI band that used to sit here came from a per-tier constant with
+            no source, no receptor and no distance behind it, and it contradicted
+            the air ledger below once that was wired in. Two air numbers on one
+            screen means students believe the wrong one, so this now points at the
+            ledger rather than competing with it.
+          */}
           <span className="font-bold text-gray-700">
-            {b.selectedFacility.statusLabel} (AQI {b.selectedFacility.rangeLabel})
+            Air at the Old Town: see the ledger below
           </span>
         </div>
         {b.airClamped && (
@@ -404,6 +411,8 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         mineSizeKm2={b.selectedSize.value}
         capacityTPerYr={b.selectedCapacity.value}
         waterMitigationSpendUsd={b.allocWater}
+        placedIndustrial={b.placedIndustrial}
+        airControlSpendUsdPerYr={b.allocAir}
       />
     </div>
   );

@@ -9,7 +9,9 @@
  */
 
 import { useState } from 'react';
-import { computeWasteLedger, computeWaterLedger } from '../model/index';
+import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
+import { toAirSources } from '../data/airSources';
+import type { PlacedIndustrialSymbol } from './map/mapSymbols';
 
 const fmt = (n: number, digits = 0) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(n);
@@ -27,16 +29,45 @@ const VERDICT_WORD: Record<string, string> = {
   lost: 'lost',
 };
 
+const AIR_STYLE: Record<string, string> = {
+  within_guideline: 'text-green-700',
+  within_limit: 'text-amber-700',
+  exceeds_limit: 'text-red-700 font-bold',
+};
+const AIR_WORD: Record<string, string> = {
+  within_guideline: 'healthy',
+  within_limit: 'lawful, not healthy',
+  exceeds_limit: 'unlawful',
+};
+const AIR_RANK: Record<string, number> = {
+  within_guideline: 0,
+  within_limit: 1,
+  exceeds_limit: 2,
+};
+const worse = (a: string, b: string) => ((AIR_RANK[a] ?? 0) >= (AIR_RANK[b] ?? 0) ? a : b);
+
 export interface LedgerPanelProps {
   mineSizeKm2: number;
   capacityTPerYr: number;
   waterMitigationSpendUsd: number;
+  /** Air depends on WHERE the facilities are, so the panel needs the placements. */
+  placedIndustrial?: readonly PlacedIndustrialSymbol[];
+  airControlSpendUsdPerYr?: number;
+  /**
+   * Benefits secured, for the haul-fleet electrification pair. Normally absent
+   * on this screen, because benefits are chosen after mitigation — the panel
+   * says so rather than silently reporting electrification as refused.
+   */
+  benefitIds?: readonly string[];
 }
 
 export function LedgerPanel({
   mineSizeKm2,
   capacityTPerYr,
   waterMitigationSpendUsd,
+  placedIndustrial,
+  airControlSpendUsdPerYr = 0,
+  benefitIds,
 }: LedgerPanelProps) {
   const [backfillPct, setBackfillPct] = useState(0);
 
@@ -53,6 +84,18 @@ export function LedgerPanel({
 
   const cistern = water.receptors[0];
   const wells = water.receptors[1];
+
+  const airSources = toAirSources(placedIndustrial ?? []);
+  const air = airSources.length
+    ? computeAirLedger({
+        sources: airSources,
+        capacityTPerYr,
+        airControlSpendUsdPerYr,
+        disturbedHa: waste.footprint.totalDisturbedHa,
+        benefitIds,
+        mineLifeYr: water.timing.mineLifeYr,
+      })
+    : null;
 
   return (
     <div className="mt-6 border-2 border-gray-900 rounded-lg overflow-hidden">
@@ -196,6 +239,100 @@ export function LedgerPanel({
             </p>
           )}
         </div>
+      </div>
+
+      {/* ------------------------------- AIR ------------------------------- */}
+      <div className="border-t-2 border-gray-900 p-4">
+        <h4 className="font-bold text-sm uppercase tracking-wide text-gray-700 mb-2">
+          Air — micrograms per cubic metre, where people are
+        </h4>
+
+        {!air ? (
+          <p className="text-sm text-gray-600">
+            Place your facilities on the map to see this. Air depends on where the operation sits,
+            not only on what is spent on it: ground-level concentration falls with roughly the
+            square of distance, so a few hundred metres matters more than the mitigation slider.
+          </p>
+        ) : (
+          <>
+            {!air.permitting.compliant && (
+              <p className="mb-3 text-sm text-red-900 bg-red-50 border-2 border-red-400 rounded p-2">
+                <strong>Cannot be permitted as sited.</strong> {air.permitting.reason} EU limit
+                values are binding law, so no benefits package buys past this. Move the facilities,
+                spend on control, or reduce the supply chain.
+              </p>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {air.receptors.map(r => (
+                <dl key={r.id} className="text-sm space-y-1">
+                  <div className="font-semibold text-xs uppercase text-gray-600">
+                    {r.label}
+                    <span className="font-normal text-gray-500">
+                      {' '}
+                      — nearest operation {fmt(r.nearestSourceM)} m
+                    </span>
+                  </div>
+                  <Row label="Coarse particulate (PM10)">
+                    <span className={AIR_STYLE[r.pm10Verdict]}>
+                      {r.pm10AnnualUgM3.toFixed(1)}
+                    </span>{' '}
+                    <span className="text-gray-500 text-xs">(limit 40, guideline 15)</span>
+                  </Row>
+                  <Row label="Fine particulate (PM2.5)">
+                    <span className={AIR_STYLE[r.pm25Verdict]}>
+                      {r.pm25AnnualUgM3.toFixed(1)}
+                    </span>{' '}
+                    <span className="text-gray-500 text-xs">(limit 25, guideline 5)</span>
+                  </Row>
+                  <Row label="Status">
+                    <span className={AIR_STYLE[worse(r.pm10Verdict, r.pm25Verdict)]}>
+                      {AIR_WORD[worse(r.pm10Verdict, r.pm25Verdict)]}
+                    </span>
+                  </Row>
+                  {r.pm25Verdict !== 'within_guideline' && (
+                    <Row label="To reach the health guideline">
+                      {r.spendToMeetGuidelineUsdPerYr === null
+                        ? 'Not reachable at any spend from here.'
+                        : `${usd(r.spendToMeetGuidelineUsdPerYr)} a year`}
+                    </Row>
+                  )}
+                </dl>
+              ))}
+            </div>
+
+            <p className="mt-3 text-xs text-gray-600">
+              Two thresholds, not one. The EU limit value is binding law. The World Health
+              Organization guideline is about five times stricter and has no legal force, so a mine
+              can sit lawfully between them for its whole life. Lawful and healthy are different
+              questions and the ledger refuses to merge them.
+            </p>
+
+            <dl className="text-sm space-y-1 mt-3 pt-3 border-t border-gray-200">
+              <Row label="Air control, per year">{usd(air.obligation.annualUsd)}</Row>
+              <Row label="Over the life of the mine">
+                {usd(air.obligation.lifetimeUsd)}{' '}
+                <span className="text-gray-500 text-xs">
+                  ({fmt(air.obligation.mineLifeYr, 0)} years, present value{' '}
+                  {usd(air.obligation.presentValueUsd)})
+                </span>
+              </Row>
+              <Row label="Haul fleet">
+                {benefitIds === undefined
+                  ? 'Depends on benefits chosen later'
+                  : air.inputs.electrified
+                    ? 'Electrified — diesel particulate removed'
+                    : 'Diesel'}
+              </Row>
+            </dl>
+            <p className="mt-2 text-xs text-gray-600">
+              Air control is rented, not bought: it is an operating cost and the dust returns the
+              year the spending stops. Workforce training and the energy storage research programme,
+              together and only together, electrify the haul fleet — which removes diesel exhaust and
+              does nothing for the dust raised by the wheels.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="bg-gray-50 border-t border-gray-300 px-4 py-2 text-xs text-gray-600">

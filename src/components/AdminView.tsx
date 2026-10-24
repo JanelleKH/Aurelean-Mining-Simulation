@@ -12,7 +12,8 @@ import {
   validateNoGoZoneFeasibility,
 } from '../data/noBuildAreas';
 import { getCommunityBenefit } from '../data/communityBenefits';
-import { computeWasteLedger, computeWaterLedger } from '../model/index';
+import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
+import { toAirSourcesFromRecords } from '../data/airSources';
 import {
   findIndustrialNoBuildConflicts,
   parseIndustrialPlacements,
@@ -37,6 +38,7 @@ interface DeveloperResult {
   total_budget: number;
   final_water: number;
   water_alloc: number;
+  air_alloc: number;
   final_waste: number;
   selectedBenefitIds: string[];
   industrialPlacements: IndustrialPlacementRecord[];
@@ -119,6 +121,7 @@ const parseCSV = (text: string, type: 'community' | 'developer'): CommunityResul
     total_budget: Number(getCsvField(header, values, 'total_budget') || values[2]),
     final_water: Number(waterRaw || values[6]),
     water_alloc: Number(getCsvField(header, values, 'water_alloc') || 0),
+    air_alloc: Number(getCsvField(header, values, 'air_alloc') || 0),
     final_waste: Number(wasteRaw || values[7]),
     selectedBenefitIds: benefitIds,
     industrialPlacements: parseIndustrialPlacements(industrialRaw),
@@ -314,6 +317,50 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       `Footprint: ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha of disturbed ground against a licence of ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. Fits.`
     );
+
+  // Air. Unlike water and waste, this one depends on WHERE the facilities were
+  // placed, so it is computed from the siting recorded in the developer's file.
+  // EU limit values are binding law rather than guidance, so an exceedance is a
+  // refusal and not a warning: no benefits package buys past it.
+  const airSources = toAirSourcesFromRecords(developerData.industrialPlacements);
+  if (airSources.length === 0) {
+    envDetails.push(
+      'Air: not assessed. The developer file records no facility placements, and air depends on where the operation sits.'
+    );
+  } else {
+    const airLedger = computeAirLedger({
+      sources: airSources,
+      capacityTPerYr: developerData.capacity_mton,
+      airControlSpendUsdPerYr: developerData.air_alloc,
+      disturbedHa: wasteLedger.footprint.totalDisturbedHa,
+      benefitIds: developerData.selectedBenefitIds,
+      mineLifeYr: waterLedger.timing.mineLifeYr,
+    });
+    const town = airLedger.receptors[0];
+
+    if (!airLedger.permitting.compliant) {
+      envVerdict = 'fail';
+      envDetails.push(
+        `Air: REFUSED. ${airLedger.permitting.reason} EU limit values are binding, so this is not something a benefits package can offset. ` +
+          (town.spendToMeetLimitUsdPerYr === null
+            ? 'No level of control spending reaches the limit from this siting — the facilities have to move.'
+            : `Reaching the limit from here would cost about $${(town.spendToMeetLimitUsdPerYr / 1e6).toFixed(1)}M a year, which is almost certainly dearer than moving the operation.`)
+      );
+    } else if (town.pm25Verdict !== 'within_guideline' || town.pm10Verdict !== 'within_guideline') {
+      if (envVerdict === 'pass') envVerdict = 'warn';
+      envDetails.push(
+        `Air: lawful but not healthy. At the Old Town, PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} ug/m3 — inside the EU limits of 40 and 25, above the WHO guidelines of 15 and 5. The nearest operation is ${Math.round(town.nearestSourceM)} m away. This is the gap the community has to argue in, because the regulation will not close it for them.`
+      );
+    } else {
+      envDetails.push(
+        `Air: within the health guidelines at the Old Town. PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} ug/m3, nearest operation ${Math.round(town.nearestSourceM)} m away.`
+      );
+    }
+
+    envDetails.push(
+      `Air control is an operating cost: $${(airLedger.obligation.annualUsd / 1e6).toFixed(1)}M a year, $${(airLedger.obligation.lifetimeUsd / 1e6).toFixed(0)}M over ${airLedger.obligation.mineLifeYr.toFixed(0)} years. It buys nothing permanent — the dust returns the year the spending stops.`
+    );
+  }
   }
 
   const unfundedBenefits = communityData.selectedBenefitIds.filter(

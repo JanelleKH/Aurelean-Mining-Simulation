@@ -392,6 +392,9 @@ export function useMitigationBudgetV2({
   return {
     phase,
     scenarioLocked,
+    // Exposed so the ledger panel can compute air, which depends on WHERE the
+    // facilities are, not only on what is spent. Water and waste do not need it.
+    placedIndustrial,
     selectedSize,
     selectedCapacity,
     selectedFacility,
