@@ -1,5 +1,14 @@
 # `src/model` — the physical layer
 
+> **Superseded in part, 24 October 2026.** The water model below was rebuilt: inflow now scales with
+> the aquifer captured rather than with licence area, drawdown uses the transient Theis solution
+> rather than steady-state Thiem, and a waste/land ledger was added. The numbers in the water and
+> canoe sections of this file are from the earlier version and are NOT current.
+>
+> Current reference: **"The Aurelean model layer: equations, parameters and provenance"**
+> (24 October 2026), in the project folder. Run `npm run model` for live numbers and
+> `node scripts/worked-example.ts` for a line-by-line worked example.
+
 Pure functions. Physical inputs in, physical quantities out. No React, no
 budgets, no scores, no UI. Run `npm run model` to print the whole scenario
 space and the pre-registered checks.
