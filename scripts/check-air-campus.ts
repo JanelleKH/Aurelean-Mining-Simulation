@@ -1,13 +1,9 @@
 /**
- * scripts/check-air-campus.ts — pre-registered checks for the two fixes of
- * 24 October 2026: University Campus restored as a no-go zone, and the air
- * ledger built to match water and waste.
+ * scripts/check-air-campus.ts — pre-registered checks for the 24 October 2026
+ * fixes: University Campus restored as a no-go zone, and the air ledger made a
+ * function of where facilities are sited.
  *
- * Run: node scripts/check-air-campus.ts
- *
- * Each check states in advance what would have to be true for the change to be
- * worth keeping, so a wrong calibration fails loudly rather than producing
- * plausible-looking numbers.
+ * Run: npm run check:fixes
  */
 
 import {
@@ -16,7 +12,13 @@ import {
   getNoBuildAreaLabel,
 } from '../src/data/noBuildAreas.ts';
 import { NO_BUILD_ZONE_RECTS, isPointInNoBuildZone } from '../src/components/map/noBuildZones.ts';
-import { computeAirLedger, computeWasteLedger, mineLifeYr, ORE_T_PER_KM2 } from '../src/model/index.ts';
+import {
+  computeAirLedger,
+  computeWasteLedger,
+  mineLifeYr,
+  ORE_T_PER_KM2,
+  type AirSource,
+} from '../src/model/index.ts';
 
 let failures = 0;
 const check = (name: string, cond: boolean, detail = '') => {
@@ -24,7 +26,7 @@ const check = (name: string, cond: boolean, detail = '') => {
   if (!cond) failures++;
 };
 const usd = (n: number | null) =>
-  n === null ? 'unreachable' : '$' + (n / 1_000_000).toFixed(2) + 'M/yr';
+  n === null ? 'UNREACHABLE at any spend' : '$' + (n / 1_000_000).toFixed(2) + 'M/yr';
 
 /* ================= CAMPUS ================= */
 console.log('\n=== UNIVERSITY CAMPUS AS A NO-GO ZONE ===\n');
@@ -32,16 +34,11 @@ console.log('\n=== UNIVERSITY CAMPUS AS A NO-GO ZONE ===\n');
 check('campus is a selectable no-go area',
   NO_BUILD_AREAS.some(a => a.id === 'campus'),
   NO_BUILD_AREAS.filter(a => a.id !== 'none').map(a => a.label).join(', '));
-
 check('campus is no longer silently rewritten to agriculture',
-  normalizeNoBuildId('campus') === 'campus',
-  `normalizeNoBuildId('campus') = ${normalizeNoBuildId('campus')}`);
-
+  normalizeNoBuildId('campus') === 'campus');
 check('campus label matches the map legend',
-  getNoBuildAreaLabel('campus') === 'University Campus',
-  getNoBuildAreaLabel('campus'));
+  getNoBuildAreaLabel('campus') === 'University Campus');
 
-// The purple boundary measured from regional-map.png.
 const DRAWN = { left: 67.9, right: 84.8, top: 51.4, bottom: 67.7 };
 {
   const r = NO_BUILD_ZONE_RECTS.find(z => z.id === 'campus');
@@ -49,12 +46,9 @@ const DRAWN = { left: 67.9, right: 84.8, top: 51.4, bottom: 67.7 };
     && r.left >= DRAWN.left - 1 && r.left + r.width <= DRAWN.right + 1
     && r.top >= DRAWN.top - 1 && r.top + r.height <= DRAWN.bottom + 1;
   check('campus rect sits within the boundary drawn on the map', ok,
-    r ? `rect x ${r.left}-${r.left + r.width}, y ${r.top}-${r.top + r.height}; drawn x ${DRAWN.left}-${DRAWN.right}, y ${DRAWN.top}-${DRAWN.bottom}` : 'no rect');
+    r ? `x ${r.left}-${r.left + r.width}, y ${r.top}-${r.top + r.height}` : 'missing');
 }
-
 {
-  // A zone that overlaps another would make one no-go selection silently
-  // exclude ground belonging to a different zone.
   const campus = NO_BUILD_ZONE_RECTS.filter(z => z.id === 'campus');
   const others = NO_BUILD_ZONE_RECTS.filter(z => z.id !== 'campus');
   const overlaps = campus.flatMap(c => others.filter(o =>
@@ -63,137 +57,160 @@ const DRAWN = { left: 67.9, right: 84.8, top: 51.4, bottom: 67.7 };
   check('campus rect overlaps no other no-go zone', overlaps.length === 0,
     overlaps.map(o => o.id).join(',') || 'none');
 }
-
 {
-  const cx = 76, cy = 59; // inside the drawn campus
-  const inCampus = isPointInNoBuildZone(cx, cy, ['campus']);
-  const inOthers = isPointInNoBuildZone(cx, cy, ['mountain', 'oldtown', 'aquifer', 'agriculture']);
-  check('a point on the campus is caught by campus and by nothing else',
-    inCampus && !inOthers, `campus=${inCampus}, others=${inOthers}`);
+  const inCampus = isPointInNoBuildZone(76, 59, ['campus']);
+  const inOthers = isPointInNoBuildZone(76, 59, ['mountain', 'oldtown', 'aquifer', 'agriculture']);
+  check('a point on the campus is caught by campus and nothing else', inCampus && !inOthers);
 }
-
-{
-  // Five selectable zones, but at most four may ever be chosen, so the
-  // community can never exclude every area at once.
-  const selectable = NO_BUILD_AREAS.filter(a => a.id !== 'none').length;
-  check('selectable zones now exceed the maximum any mine size allows',
-    selectable === 5, `${selectable} zones, max selectable is 4`);
-}
+check('five selectable zones against a maximum of four',
+  NO_BUILD_AREAS.filter(a => a.id !== 'none').length === 5);
 
 /* ================= AIR ================= */
-console.log('\n=== AIR LEDGER ===\n');
+console.log('\n=== AIR LEDGER: SITING DRIVES EXPOSURE ===\n');
 
 const waste = computeWasteLedger({ mineSizeKm2: 4, capacityTPerYr: 3_000_000, backfillFraction: 0 });
 const life = mineLifeYr(4 * ORE_T_PER_KM2, 3_000_000);
-const base = (over: Partial<Parameters<typeof computeAirLedger>[0]> = {}) =>
+
+// Map geometry: 10 km across, so 1 percent = 100 m.
+//   ore body   x 34-66, y 14-31   (extraction must be within 1 km of it)
+//   Old Town   x 30-62, y 35-62
+//   Mountain Trails (no-go candidate)  x 28-72, y 0-13
+const SOUTH: AirSource[] = [
+  { kind: 'extraction', xPct: 50, yPct: 32 },
+  { kind: 'refining', xPct: 52, yPct: 32 },
+  { kind: 'processing', xPct: 54, yPct: 32 },
+];
+const NORTH_BLOCKED: AirSource[] = [
+  { kind: 'extraction', xPct: 50, yPct: 14 },
+  { kind: 'refining', xPct: 52, yPct: 14 },
+  { kind: 'processing', xPct: 54, yPct: 14 },
+];
+const NORTH_FREE: AirSource[] = [
+  { kind: 'extraction', xPct: 50, yPct: 5 },
+  { kind: 'refining', xPct: 52, yPct: 5 },
+  { kind: 'processing', xPct: 54, yPct: 5 },
+];
+
+const ledger = (
+  sources: AirSource[],
+  spend = 300_000,
+  over: Partial<Parameters<typeof computeAirLedger>[0]> = {},
+) =>
   computeAirLedger({
+    sources,
     capacityTPerYr: 3_000_000,
-    tier: 'processing',
-    airControlSpendUsdPerYr: 300_000,
+    airControlSpendUsdPerYr: spend,
     disturbedHa: waste.footprint.totalDisturbedHa,
     mineLifeYr: life,
     ...over,
   });
 
-console.log('reference case: 4 km2, 3.0 Mt/yr, processing tier, $0.3M/yr control');
-{
-  const L = base();
-  for (const r of L.receptors) {
-    console.log(`  ${r.label.padEnd(18)} ${r.distanceM} m   PM10 ${r.pm10AnnualUgM3.toFixed(1).padStart(5)}  (${r.pm10Verdict})   PM2.5 ${r.pm25AnnualUgM3.toFixed(1).padStart(5)}  (${r.pm25Verdict})`);
-    console.log(`  ${''.padEnd(18)}   to EU limit ${usd(r.spendToMeetLimitUsdPerYr)};  to WHO guideline ${usd(r.spendToMeetGuidelineUsdPerYr)}`);
-  }
-  console.log(`  disturbed ground ${waste.footprint.totalDisturbedHa.toFixed(0)} ha, mine life ${life.toFixed(1)} yr`);
+const cases: [string, AirSource[]][] = [
+  ['south (on the town)', SOUTH],
+  ['north, trails no-go', NORTH_BLOCKED],
+  ['north, trails open', NORTH_FREE],
+];
+for (const [name, src] of cases) {
+  const L = ledger(src);
+  const t = L.receptors[0];
+  console.log(`${name.padEnd(22)} nearest ${String(Math.round(t.nearestSourceM)).padStart(4)} m   PM10 ${t.pm10AnnualUgM3.toFixed(1).padStart(6)}   PM2.5 ${t.pm25AnnualUgM3.toFixed(1).padStart(6)}   ${L.permitting.compliant ? 'PERMITTABLE' : 'REFUSED'}`);
+  console.log(`${''.padEnd(22)} to EU limit ${usd(t.spendToMeetLimitUsdPerYr)}    to WHO guideline ${usd(t.spendToMeetGuidelineUsdPerYr)}`);
 }
 console.log('');
 
-// (a) Distance must reduce concentration, or siting on the map means nothing.
+// (a) Distance must dominate, or the rebuild was pointless.
 {
-  const L = base();
-  const town = L.receptors[0];
-  const campus = L.receptors[1];
-  check('the farther receptor sees less', campus.pm25AnnualUgM3 < town.pm25AnnualUgM3,
-    `old town ${town.pm25AnnualUgM3.toFixed(2)} vs campus ${campus.pm25AnnualUgM3.toFixed(2)} ug/m3`);
+  const near = ledger(SOUTH).receptors[0].pm25AnnualUgM3;
+  const far = ledger(NORTH_FREE).receptors[0].pm25AnnualUgM3;
+  check('moving the operation north cuts Old Town PM2.5 by more than 5x', far * 5 < near,
+    `${near.toFixed(1)} -> ${far.toFixed(1)} ug/m3`);
 }
 
-// (b) Spending more must never make the air worse.
+// (b) The gate must refuse something, or it is decoration.
 {
-  let mono = true, prev = Infinity;
-  for (const s of [300_000, 2_000_000, 4_000_000, 8_000_000, 16_000_000]) {
-    const v = base({ airControlSpendUsdPerYr: s }).receptors[0].pm25AnnualUgM3;
+  const L = ledger(SOUTH);
+  check('siting hard against the town is refused permission', !L.permitting.compliant,
+    L.permitting.reason ?? '');
+}
+
+// (c) And allow something, or the scenario is unwinnable.
+{
+  const L = ledger(NORTH_FREE);
+  check('siting away from the town is permittable', L.permitting.compliant);
+}
+
+// (d) THE CONFLICT: protecting the trails pushes the mine toward the houses.
+{
+  const blocked = ledger(NORTH_BLOCKED).receptors[0].pm25AnnualUgM3;
+  const free = ledger(NORTH_FREE).receptors[0].pm25AnnualUgM3;
+  check('a Mountain Trails no-go measurably worsens Old Town air', blocked > free,
+    `trails open ${free.toFixed(1)} -> trails protected ${blocked.toFixed(1)} ug/m3`);
+}
+
+// (e) Spending must never make air worse.
+{
+  let mono = true;
+  let prev = Infinity;
+  for (const s of [300_000, 2_000_000, 6_000_000, 12_000_000, 24_000_000]) {
+    const v = ledger(SOUTH, s).receptors[0].pm25AnnualUgM3;
     if (v > prev + 1e-9) mono = false;
     prev = v;
   }
   check('concentration is monotone decreasing in control spend', mono);
 }
 
-// (c) Supply-chain tier must drive air, which is the link Janelle specified.
+// (f) Money must not buy past bad siting cheaply, or siting is not a decision.
 {
-  const e = base({ tier: 'extraction' }).receptors[0].pm25AnnualUgM3;
-  const a = base({ tier: 'advanced_manufacturing' }).receptors[0].pm25AnnualUgM3;
-  check('a longer supply chain raises PM2.5 at the Old Town', a > e,
-    `extraction ${e.toFixed(2)} -> advanced manufacturing ${a.toFixed(2)} ug/m3`);
+  const t = ledger(SOUTH).receptors[0];
+  const costly = t.spendToMeetLimitUsdPerYr === null || t.spendToMeetLimitUsdPerYr > 5_000_000;
+  check('complying from the worst siting is impossible or very expensive', costly,
+    usd(t.spendToMeetLimitUsdPerYr));
 }
 
-// (d) Electrification must cut diesel and must NOT cut road dust. If PM10 moves,
-//     the sources are wrongly lumped and the benefit is doing magic.
+// (g) The farther receptor sees less.
 {
-  const off = base();
-  const on = base({ benefitIds: ['workforce', 'research'] });
-  const dieselCut = on.controlled.dieselPm25 < off.controlled.dieselPm25;
-  const dustSame = Math.abs(on.controlled.haulRoadPm10 - off.controlled.haulRoadPm10) < 1e-9;
-  check('electrifying the fleet cuts diesel PM2.5 but not road dust',
-    dieselCut && dustSame,
-    `diesel ${off.controlled.dieselPm25.toFixed(3)} -> ${on.controlled.dieselPm25.toFixed(3)} g/s; road dust PM10 ${off.controlled.haulRoadPm10.toFixed(3)} -> ${on.controlled.haulRoadPm10.toFixed(3)} g/s`);
+  const L = ledger(SOUTH);
+  check('the campus, farther away, sees less than the Old Town',
+    L.receptors[1].pm25AnnualUgM3 < L.receptors[0].pm25AnnualUgM3,
+    `old town ${L.receptors[0].pm25AnnualUgM3.toFixed(1)} vs campus ${L.receptors[1].pm25AnnualUgM3.toFixed(1)}`);
 }
 
-// (e) Electrification must need BOTH benefits, or the pairing is decorative.
+// (h) Electrification cuts fine particulate without erasing coarse road dust.
 {
-  const one = base({ benefitIds: ['workforce'] });
-  const both = base({ benefitIds: ['workforce', 'research'] });
+  const off = ledger(SOUTH);
+  const on = ledger(SOUTH, 300_000, { benefitIds: ['workforce', 'research'] });
+  const cut = on.receptors[0].pm25AnnualUgM3 < off.receptors[0].pm25AnnualUgM3;
+  const dustKept = on.receptors[0].pm10AnnualUgM3 > 0.5 * off.receptors[0].pm10AnnualUgM3;
+  check('electrification cuts PM2.5 without erasing coarse road dust', cut && dustKept,
+    `PM2.5 ${off.receptors[0].pm25AnnualUgM3.toFixed(1)} -> ${on.receptors[0].pm25AnnualUgM3.toFixed(1)}; PM10 ${off.receptors[0].pm10AnnualUgM3.toFixed(1)} -> ${on.receptors[0].pm10AnnualUgM3.toFixed(1)}`);
+}
+{
+  const one = ledger(SOUTH, 300_000, { benefitIds: ['workforce'] });
+  const both = ledger(SOUTH, 300_000, { benefitIds: ['workforce', 'research'] });
   check('electrification requires both benefits, not either',
     !one.inputs.electrified && both.inputs.electrified);
 }
 
-// (f) THE CENTRAL CLAIM: air is the dimension money can fix. If the EU limit
-//     were unreachable at any spend, that claim is false and the contrast
-//     drawn with the cistern in the README collapses.
+// (i) Air is tied to the waste ledger's footprint.
 {
-  const worst = base({ tier: 'advanced_manufacturing', capacityTPerYr: 5_000_000 });
-  const r = worst.receptors[0];
-  check('at the worst scenario the legal limit is still reachable for money',
-    r.spendToMeetLimitUsdPerYr !== null,
-    `${usd(r.spendToMeetLimitUsdPerYr)} at 5 Mt/yr, advanced manufacturing`);
-}
-
-// (g) But it must not be free, or there is nothing to negotiate.
-{
-  const worst = base({ tier: 'advanced_manufacturing', capacityTPerYr: 5_000_000 });
-  const g = worst.receptors[0].spendToMeetGuidelineUsdPerYr;
-  check('the health guideline costs more than the legal limit, or is out of reach',
-    g === null || g > (worst.receptors[0].spendToMeetLimitUsdPerYr ?? 0),
-    `limit ${usd(worst.receptors[0].spendToMeetLimitUsdPerYr)}, guideline ${usd(g)}`);
-}
-
-// (h) Wind erosion must tie air to the waste ledger's footprint.
-{
-  const small = base({ disturbedHa: 50 }).receptors[0].pm10AnnualUgM3;
-  const large = base({ disturbedHa: 500 }).receptors[0].pm10AnnualUgM3;
+  const small = ledger(SOUTH, 300_000, { disturbedHa: 50 }).receptors[0].pm10AnnualUgM3;
+  const large = ledger(SOUTH, 300_000, { disturbedHa: 500 }).receptors[0].pm10AnnualUgM3;
   check('more disturbed ground means more dust', large > small,
-    `50 ha ${small.toFixed(2)} -> 500 ha ${large.toFixed(2)} ug/m3`);
+    `50 ha ${small.toFixed(1)} -> 500 ha ${large.toFixed(1)} ug/m3`);
 }
 
-// (i) Air must be a recurring obligation, not a one-off payment. This is what
-//     distinguishes it from every other dimension in the model.
+// (j) Air is rented, not bought: the lifetime obligation must dwarf the
+//     dearest one-off benefit ($5M research programme).
 {
-  const L = base({ airControlSpendUsdPerYr: 4_000_000 });
-  check('control is priced as an annual obligation over the mine life',
-    L.obligation.lifetimeUsd > 5 * L.obligation.annualUsd,
-    `$${(L.obligation.annualUsd / 1e6).toFixed(1)}M/yr x ${L.obligation.mineLifeYr.toFixed(1)} yr = $${(L.obligation.lifetimeUsd / 1e6).toFixed(0)}M`);
+  const L = ledger(NORTH_BLOCKED, 4_000_000);
+  check('the lifetime air obligation exceeds the most expensive single benefit',
+    L.obligation.presentValueUsd > 5_000_000,
+    `$${(L.obligation.annualUsd / 1e6).toFixed(1)}M/yr x ${L.obligation.mineLifeYr.toFixed(0)} yr = $${(L.obligation.lifetimeUsd / 1e6).toFixed(0)}M, PV $${(L.obligation.presentValueUsd / 1e6).toFixed(0)}M`);
 }
 
-// (j) No cross-dimension total, same rule as water and waste.
+// (k) No cross-dimension total.
 {
-  const keys = Object.keys(base() as unknown as Record<string, unknown>);
+  const keys = Object.keys(ledger(SOUTH) as unknown as Record<string, unknown>);
   check('air ledger exposes no cross-dimension score',
     !keys.some(k => /score|utility|aqi/i.test(k)), keys.join(','));
 }

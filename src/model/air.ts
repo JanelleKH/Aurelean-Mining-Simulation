@@ -1,75 +1,112 @@
 /**
  * air.ts — the air ledger.
  *
- * Built 24 October 2026. It replaces AIR_TIERS in
- * src/data/mitigationConstants.ts, where each supply-chain tier carried a
- * bare "aqiWorst" figure — 0, 100, 150, 200 — with no source, no receptor,
- * no distance and no way for a participant to check it. The application also
- * added each tier's budget and then immediately spent the same amount on air
- * mitigation, so the investment available after locking never moved. That is
- * the defect Janelle found in the 23 September trial.
+ * REBUILT 24 October 2026, second pass. The first pass replaced AIR_TIERS
+ * (a bare "aqiWorst" number per tier, with no source, no receptor and no
+ * distance) with a real emissions-to-concentration chain. It was physically
+ * defensible and practically inert: at the reference case the Old Town sat
+ * within the WHO guideline with almost no spend, so no developer would ever
+ * feel it.
  *
- * What replaces it:
+ * The reason was a single number. Receptor distance was a fixed 2 km, which I
+ * had flagged as a placeholder. The map is 10 km across, so one map-percent is
+ * 100 m, and the ore body's southern edge is 4 percent — 400 m — from the Old
+ * Town's northern edge. Ground-level concentration goes as roughly 1/x^2, so
+ * the placeholder was wrong by a factor of about fifteen in the answer.
  *
- *   emissions (g/s, by source)  ->  dispersion (Gaussian, to a named place)
- *   ->  concentration (ug/m3)   ->  two thresholds, legal and health
+ * The fix is not a larger emission factor. It is geometry:
  *
- * Every step is in physical units and every step can be argued with.
+ *   each placed facility is its own source, at its own point on the map
+ *   -> distance to the nearest edge of each inhabited receptor
+ *   -> Gaussian dispersion from each source
+ *   -> concentrations summed at the receptor
+ *   -> tested against a binding legal limit and an advisory health guideline
  *
- * THE SHAPE OF THIS DIMENSION, and why it is not water. Dust and stack
- * emissions respond well to control: watering and stabilisers reach 85%,
- * baghouses and scrubbers 95%. So air is the dimension money CAN fix. What it
- * cannot do is fix it once. Control is an operating cost paid every year the
- * mine runs, and it stops the year the budget does. Water gives you an
- * irreversible loss at a threshold; air gives you a permanent obligation. A
- * community that wins a large air-control commitment has won something real
- * and something fragile, and the model should let them feel the difference.
+ * WHAT THIS BUYS. Siting becomes an air decision. The developer already drags
+ * facilities onto the map; now that choice moves exposure by more than an
+ * order of magnitude, because extraction may sit anywhere within 1 km of the
+ * ore body — from 400 m to about 3.1 km from the town edge.
+ *
+ * It also creates a conflict worth having in the room. Pushing the operation
+ * north, away from the town, runs it into the Mountain Trails. If the
+ * community has designated the trails a no-go zone, the mine is pressed back
+ * toward the houses. Protecting the trails costs the town its air, and no
+ * amount of money resolves it, because the two are not denominated in the same
+ * thing. That is the trade-off the framework exists to make visible, and it
+ * falls out of the geometry rather than being asserted.
+ *
+ * THE SHAPE OF THIS DIMENSION. Control reaches 85-95%, against 60% for
+ * dewatering, so air is the dimension money CAN fix. What it cannot do is fix
+ * it once: control is an operating cost paid every year the mine runs, and it
+ * stops the year the budget does. Water fails as an irreversible loss at a
+ * threshold; air fails as a permanent obligation.
  */
 
 import {
   AIR_CONTROL_SPEND_SCALE_USD,
+  AIR_RECEPTORS,
   DIESEL_PM25_G_PER_T_MOVED,
-  DISTANCE_TO_CAMPUS_M,
-  DISTANCE_TO_OLD_TOWN_M,
   DUST_CONTROL_MAX_EFFECTIVENESS,
   ELECTRIFICATION_DIESEL_REMOVED_FRACTION,
   ELECTRIFICATION_REQUIRES,
   EU_LIMIT_PM10_ANNUAL_UG_M3,
   EU_LIMIT_PM25_ANNUAL_UG_M3,
+  FACILITY_PM25_G_PER_S,
+  FACILITY_SO2_G_PER_S,
   HANDLING_PM10_G_PER_T,
   HAUL_ROAD_PM10_KG_PER_VKT,
   HAUL_VKT_PER_T_MOVED,
+  MAP_PCT_TO_M,
+  NOMINAL_THROUGHPUT_T_PER_YR,
   PM25_FRACTION_OF_HANDLING_PM10,
   PM25_FRACTION_OF_ROAD_PM10,
   RECEPTOR_SECTOR_FREQUENCY,
+  RELEASE_HEIGHT_M,
   STACK_CONTROL_MAX_EFFECTIVENESS,
   STRIP_RATIO_UNDERGROUND,
-  TIER_PROCESS_PM25_G_PER_S,
-  TIER_PROCESS_SO2_G_PER_S,
   WHO_GUIDELINE_PM10_ANNUAL_UG_M3,
   WHO_GUIDELINE_PM25_ANNUAL_UG_M3,
   WIND_EROSION_PM10_KG_PER_HA_YR,
   WIND_SPEED_M_PER_S,
+  type ReceptorRectPct,
 } from './params.ts';
 
 const SECONDS_PER_YR = 365 * 24 * 3600;
 
-export type AirTierId = 'extraction' | 'refining' | 'processing' | 'advanced_manufacturing';
+export type AirSourceKind = 'extraction' | 'refining' | 'processing' | 'advanced_manufacturing';
 export type AirVerdict = 'within_guideline' | 'within_limit' | 'exceeds_limit';
+
+/** A facility as placed on the map. Percent of map width/height. */
+export type AirSource = { kind: AirSourceKind; xPct: number; yPct: number };
+
+/* ------------------------------------------------------------------ *
+ * Geometry
+ * ------------------------------------------------------------------ */
+
+/**
+ * Distance from a map point to the nearest edge of a receptor, in metres.
+ * Nearest edge rather than centroid because an EU limit value is assessed
+ * where people are actually exposed — the first houses, not the middle of
+ * the district. Zero inside the receptor, which is then floored for the
+ * dispersion model, since a plume has no meaning at zero range.
+ */
+export function distanceToReceptorM(xPct: number, yPct: number, rect: ReceptorRectPct): number {
+  const nx = Math.max(rect.left, Math.min(xPct, rect.left + rect.width));
+  const ny = Math.max(rect.top, Math.min(yPct, rect.top + rect.height));
+  const dx = xPct - nx;
+  const dy = yPct - ny;
+  return Math.sqrt(dx * dx + dy * dy) * MAP_PCT_TO_M;
+}
 
 /* ------------------------------------------------------------------ *
  * Dispersion
  * ------------------------------------------------------------------ */
 
 /**
- * Briggs rural dispersion coefficients, Pasquill stability class D
- * (neutral) — the class that dominates an annual mean.
- *
+ * Briggs rural dispersion coefficients, Pasquill class D (neutral), the class
+ * that dominates an annual mean:
  *   sigma_y = 0.08 x (1 + 0.0001 x)^-1/2
  *   sigma_z = 0.06 x (1 + 0.0015 x)^-1/2
- *
- * x in metres. Class D is used rather than a worst case because the
- * thresholds being tested are annual means, not hourly peaks.
  */
 export function briggsSigmaYM(distanceM: number): number {
   const x = Math.max(1, distanceM);
@@ -82,265 +119,378 @@ export function briggsSigmaZM(distanceM: number): number {
 }
 
 /**
- * Ground-level centreline concentration from a ground-level source,
- * Gaussian plume, ug/m3:
- *
- *   C = Q / (pi u sigma_y sigma_z)
- *
- * Q in g/s, u in m/s, sigmas in m. Release height is taken as zero, which
- * is right for fugitive dust and conservative for stacks — a real stack
- * lifts the plume and reduces ground-level concentration nearby. The twin,
- * with real stack heights, should add the exponential height term.
+ * Minimum range for the Gaussian plume, m. Below about 100 m the model is not
+ * valid and over-predicts badly, so a source placed on top of the receptor is
+ * held here rather than allowed to produce an infinite concentration.
  */
-export function centrelineConcentrationUgM3(emissionGPerS: number, distanceM: number): number {
+export const MIN_PLUME_RANGE_M = 100;
+
+/**
+ * Ground-level centreline concentration from a ground-level source, ug/m3:
+ *   C = Q / (pi u sigma_y sigma_z)
+ * Q in g/s. Release height is taken as zero: right for fugitive dust, and
+ * conservative for stacks, since a real stack lifts the plume and lowers the
+ * nearby ground-level concentration. The twin, with real stack heights, should
+ * add the exponential height term.
+ */
+export function centrelineConcentrationUgM3(
+  emissionGPerS: number,
+  distanceM: number,
+  releaseHeightM = 0,
+): number {
   if (!(emissionGPerS > 0)) return 0;
-  const sy = briggsSigmaYM(distanceM);
-  const sz = briggsSigmaZM(distanceM);
-  const gPerM3 = emissionGPerS / (Math.PI * WIND_SPEED_M_PER_S * sy * sz);
-  return gPerM3 * 1e6;
+  const x = Math.max(MIN_PLUME_RANGE_M, distanceM);
+  const sy = briggsSigmaYM(x);
+  const sz = briggsSigmaZM(x);
+  // Elevated release: the plume must reach the ground before anyone breathes
+  // it. exp(-H^2 / 2 sigma_z^2) is near zero close to a tall stack and tends
+  // to one far away, which is why a chimney protects its neighbours and
+  // exports the problem downwind.
+  const h = Math.max(0, releaseHeightM);
+  const groundFactor = h > 0 ? Math.exp(-(h * h) / (2 * sz * sz)) : 1;
+  return (emissionGPerS / (Math.PI * WIND_SPEED_M_PER_S * sy * sz)) * groundFactor * 1e6;
 }
 
 /**
- * Annual mean at a receptor. The centreline value applies only while the
- * wind blows that way; the rest of the year the receptor is upwind or
- * crosswind. Multiplying by the sector frequency is the crudest possible
- * wind rose and is flagged as such in params.ts.
+ * Ground-level concentration from an AREA source, ug/m3.
+ *
+ * Waste dumps and tailings beaches are not points. A 118 ha facility is
+ * roughly 1.1 km across, and collapsing it to a point puts its whole emission
+ * through the dispersion of a chimney, which over-predicts badly at short
+ * range — by more than an order of magnitude in the siting cases that matter
+ * most here.
+ *
+ * The standard treatment (EPA virtual-source method) gives the area an initial
+ * spread and adds it in quadrature to the travel-distance spread:
+ *
+ *   sigma_y0 = side / 4.3        sigma_z0 = height / 2.15
+ *   sigma_eff = sqrt(sigma^2 + sigma_0^2)
+ *
+ * The divisors come from matching a uniform rectangle to a Gaussian of equal
+ * area. Without this the model refuses sitings it has no business refusing.
  */
-export function annualMeanConcentrationUgM3(emissionGPerS: number, distanceM: number): number {
-  return centrelineConcentrationUgM3(emissionGPerS, distanceM) * RECEPTOR_SECTOR_FREQUENCY;
+export function areaSourceConcentrationUgM3(
+  emissionGPerS: number,
+  distanceM: number,
+  areaHa: number,
+  heightM = 20,
+): number {
+  if (!(emissionGPerS > 0)) return 0;
+  const sideM = Math.sqrt(Math.max(0, areaHa) * 10_000);
+  const x = Math.max(MIN_PLUME_RANGE_M, distanceM);
+  const sy = Math.hypot(briggsSigmaYM(x), sideM / 4.3);
+  const sz = Math.hypot(briggsSigmaZM(x), heightM / 2.15);
+  return (emissionGPerS / (Math.PI * WIND_SPEED_M_PER_S * sy * sz)) * 1e6;
+}
+
+/** Annual mean: centreline, weighted by how often the wind blows that way. */
+export function annualMeanConcentrationUgM3(
+  emissionGPerS: number,
+  distanceM: number,
+  releaseHeightM = 0,
+): number {
+  return centrelineConcentrationUgM3(emissionGPerS, distanceM, releaseHeightM)
+    * RECEPTOR_SECTOR_FREQUENCY;
+}
+
+/** Annual mean from an area source. */
+export function annualMeanAreaUgM3(
+  emissionGPerS: number,
+  distanceM: number,
+  areaHa: number,
+): number {
+  return areaSourceConcentrationUgM3(emissionGPerS, distanceM, areaHa) * RECEPTOR_SECTOR_FREQUENCY;
 }
 
 /* ------------------------------------------------------------------ *
  * Control
  * ------------------------------------------------------------------ */
 
-/** Saturating control response, as for water but with a far higher ceiling. */
 export function controlEffectiveness(spendUsdPerYr: number, maxEffectiveness: number): number {
   if (!(spendUsdPerYr > 0)) return 0;
   return maxEffectiveness * (1 - Math.exp(-spendUsdPerYr / AIR_CONTROL_SPEND_SCALE_USD));
 }
 
 /* ------------------------------------------------------------------ *
- * Emissions
+ * Emissions, per source
  * ------------------------------------------------------------------ */
 
-export type AirEmissions = {
-  /** g/s, after control and after any electrification. */
-  haulRoadPm10: number;
-  haulRoadPm25: number;
-  handlingPm10: number;
-  handlingPm25: number;
-  windErosionPm10: number;
-  dieselPm25: number;
-  processPm25: number;
-  processSo2: number;
-  totalPm10: number;
-  totalPm25: number;
+export type SourceEmission = {
+  kind: AirSourceKind;
+  xPct: number;
+  yPct: number;
+  pm10GPerS: number;
+  pm25GPerS: number;
+  so2GPerS: number;
+  /** Wind erosion off the dumps, dispersed as an area source. */
+  areaPm10GPerS: number;
 };
 
 export type ReceptorAir = {
-  id: 'old_town' | 'campus';
+  id: string;
   label: string;
-  distanceM: number;
+  /** Distance to the nearest source, m — the one that dominates. */
+  nearestSourceM: number;
   pm10AnnualUgM3: number;
   pm25AnnualUgM3: number;
   pm10Verdict: AirVerdict;
   pm25Verdict: AirVerdict;
-  /** Annual control spend that would bring PM2.5 inside the EU limit. */
+  /** Annual control spend bringing BOTH pollutants inside the EU limit. */
   spendToMeetLimitUsdPerYr: number | null;
-  /** Annual control spend that would bring PM2.5 inside the WHO guideline. */
+  /** Annual control spend reaching the WHO guideline for both. */
   spendToMeetGuidelineUsdPerYr: number | null;
 };
 
 export type AirLedger = {
   inputs: {
     capacityTPerYr: number;
-    tier: AirTierId;
     airControlSpendUsdPerYr: number;
     disturbedHa: number;
     electrified: boolean;
+    sourceCount: number;
   };
-  /** Before any control, for comparison. g/s. */
-  uncontrolled: AirEmissions;
-  /** After control and electrification. g/s. */
-  controlled: AirEmissions;
+  sources: SourceEmission[];
   control: {
     spendUsdPerYr: number;
-    /** How the single allocation is split between the two kinds of kit. */
     shareToDust: number;
     dustEffectiveness: number;
     stackEffectiveness: number;
   };
   receptors: ReceptorAir[];
   /**
-   * Control is an operating cost, not a capital one. This is what the
-   * commitment actually costs over the life of the mine, and it is the
-   * number that distinguishes air from every other dimension here.
+   * The hard gate. EU limit values are binding, not advisory: a scenario that
+   * exceeds one is not permittable, and no benefits package buys past it. The
+   * developer must move facilities, spend on control, or drop a tier.
    */
-  obligation: { annualUsd: number; mineLifeYr: number; lifetimeUsd: number };
+  permitting: {
+    compliant: boolean;
+    /** Which receptor and pollutant bind, when one does. */
+    bindingReceptor: string | null;
+    bindingPollutant: 'PM10' | 'PM2.5' | null;
+    exceedanceUgM3: number;
+    reason: string | null;
+  };
+  /**
+   * Control is an operating cost. This is what the commitment actually costs,
+   * and it is what distinguishes air from every other dimension in the model:
+   * a benefit is bought once, clean air is rented.
+   */
+  obligation: {
+    annualUsd: number;
+    mineLifeYr: number;
+    lifetimeUsd: number;
+    /** Present value at the stated rate, for comparison with one-off benefits. */
+    presentValueUsd: number;
+    discountRate: number;
+  };
 };
 
-function emissionsFor(args: {
+function buildSources(args: {
+  sources: AirSource[];
   capacityTPerYr: number;
-  tier: AirTierId;
   disturbedHa: number;
   electrified: boolean;
   dustEffectiveness: number;
   stackEffectiveness: number;
-}): AirEmissions {
-  const { capacityTPerYr, tier, disturbedHa, electrified } = args;
+}): SourceEmission[] {
+  const { sources, capacityTPerYr, disturbedHa, electrified } = args;
   const dustKept = 1 - clamp01(args.dustEffectiveness);
   const stackKept = 1 - clamp01(args.stackEffectiveness);
+
+  const extraction = sources.filter(s => s.kind === 'extraction');
+  const nExtraction = Math.max(1, extraction.length);
 
   // Everything raised to surface moves on haul roads: ore plus waste rock.
   const materialMovedTPerYr = capacityTPerYr * (1 + STRIP_RATIO_UNDERGROUND);
 
-  const haulPm10GPerYr =
-    materialMovedTPerYr * HAUL_VKT_PER_T_MOVED * HAUL_ROAD_PM10_KG_PER_VKT * 1000;
-  const handlingPm10GPerYr = capacityTPerYr * HANDLING_PM10_G_PER_T;
-  const windPm10GPerYr = Math.max(0, disturbedHa) * WIND_EROSION_PM10_KG_PER_HA_YR * 1000;
-  const dieselPm25GPerYr = materialMovedTPerYr * DIESEL_PM25_G_PER_T_MOVED;
-
-  const haulRoadPm10 = (haulPm10GPerYr / SECONDS_PER_YR) * dustKept;
-  const handlingPm10 = (handlingPm10GPerYr / SECONDS_PER_YR) * dustKept;
-  const windErosionPm10 = (windPm10GPerYr / SECONDS_PER_YR) * dustKept;
-
-  const haulRoadPm25 = haulRoadPm10 * PM25_FRACTION_OF_ROAD_PM10;
-  const handlingPm25 = handlingPm10 * PM25_FRACTION_OF_HANDLING_PM10;
+  const haulPm10GPerS =
+    (materialMovedTPerYr * HAUL_VKT_PER_T_MOVED * HAUL_ROAD_PM10_KG_PER_VKT * 1000) / SECONDS_PER_YR;
+  const handlingPm10GPerS = (capacityTPerYr * HANDLING_PM10_G_PER_T) / SECONDS_PER_YR;
+  const windPm10GPerS =
+    (Math.max(0, disturbedHa) * WIND_EROSION_PM10_KG_PER_HA_YR * 1000) / SECONDS_PER_YR;
+  const dieselPm25GPerS = (materialMovedTPerYr * DIESEL_PM25_G_PER_T_MOVED) / SECONDS_PER_YR;
 
   // Electrifying the fleet removes diesel particulate. It does nothing for
-  // road dust: an electric truck raises dust with its wheels exactly as a
-  // diesel one does. Keeping these separate is the whole point of splitting
-  // the sources out rather than carrying one "air" number.
+  // road dust, which is raised by the wheels of any vehicle. Keeping the two
+  // apart is the point of itemising sources at all.
   const electrifiedFactor = electrified ? 1 - ELECTRIFICATION_DIESEL_REMOVED_FRACTION : 1;
-  const dieselPm25 = (dieselPm25GPerYr / SECONDS_PER_YR) * electrifiedFactor * dustKept;
 
-  const processPm25 = (TIER_PROCESS_PM25_G_PER_S[tier] ?? 0) * stackKept;
-  const processSo2 = (TIER_PROCESS_SO2_G_PER_S[tier] ?? 0) * stackKept;
+  const throughputScale = capacityTPerYr / NOMINAL_THROUGHPUT_T_PER_YR;
+  const kindCount = (k: AirSourceKind) => Math.max(1, sources.filter(s => s.kind === k).length);
 
-  const totalPm10 = haulRoadPm10 + handlingPm10 + windErosionPm10 + dieselPm25 + processPm25;
-  const totalPm25 = haulRoadPm25 + handlingPm25 + dieselPm25 + processPm25;
+  return sources.map(s => {
+    let pm10 = 0;
+    let pm25 = 0;
+    let so2 = 0;
+    let areaPm10 = 0;
 
-  return {
-    haulRoadPm10,
-    haulRoadPm25,
-    handlingPm10,
-    handlingPm25,
-    windErosionPm10,
-    dieselPm25,
-    processPm25,
-    processSo2,
-    totalPm10,
-    totalPm25,
-  };
+    if (s.kind === 'extraction') {
+      // Fugitive sources sit at the workings: haulage, run-of-mine handling,
+      // and wind off the dumps. Shared equally across extraction sites.
+      const share = 1 / nExtraction;
+      const haul = haulPm10GPerS * share * dustKept;
+      const handling = handlingPm10GPerS * share * dustKept;
+      const diesel = dieselPm25GPerS * share * electrifiedFactor * dustKept;
+      pm10 += haul + handling + diesel;
+      pm25 += haul * PM25_FRACTION_OF_ROAD_PM10 + handling * PM25_FRACTION_OF_HANDLING_PM10 + diesel;
+      // Wind erosion is kept separate because it disperses as an area source,
+      // not from a point. Bundling it here was over-predicting by roughly an
+      // order of magnitude at close range.
+      areaPm10 += windPm10GPerS * share * dustKept;
+    } else {
+      const share = 1 / kindCount(s.kind);
+      const p = (FACILITY_PM25_G_PER_S[s.kind] ?? 0) * throughputScale * share * stackKept;
+      const q = (FACILITY_SO2_G_PER_S[s.kind] ?? 0) * throughputScale * share * stackKept;
+      pm10 += p;
+      pm25 += p;
+      so2 += q;
+    }
+
+    return {
+      kind: s.kind, xPct: s.xPct, yPct: s.yPct,
+      pm10GPerS: pm10, pm25GPerS: pm25, so2GPerS: so2,
+      areaPm10GPerS: areaPm10,
+    };
+  });
 }
 
 export function computeAirLedger(input: {
+  sources: AirSource[];
   capacityTPerYr: number;
-  tier: AirTierId;
-  /** Annual spend on dust and stack control. */
   airControlSpendUsdPerYr: number;
   /** Disturbed ground from the waste ledger, ha. Wind erosion scales with it. */
   disturbedHa: number;
-  /** Benefit ids the community secured, used to test for electrification. */
   benefitIds?: readonly string[];
   mineLifeYr?: number;
+  discountRate?: number;
+  receptors?: ReceptorRectPct[];
 }): AirLedger {
-  const { capacityTPerYr, tier, airControlSpendUsdPerYr, disturbedHa } = input;
+  const { sources, capacityTPerYr, airControlSpendUsdPerYr, disturbedHa } = input;
   const benefits = input.benefitIds ?? [];
   const electrified = ELECTRIFICATION_REQUIRES.every(r => benefits.includes(r));
   const lifeYr = input.mineLifeYr ?? 0;
+  const discountRate = input.discountRate ?? 0.03;
+  const receptorDefs = input.receptors ?? AIR_RECEPTORS;
 
-  // The baseline is both uncontrolled AND un-electrified, so it is a fixed
-  // reference that does not move when the community wins a benefit.
-  const uncontrolled = emissionsFor({
-    capacityTPerYr,
-    tier,
-    disturbedHa,
-    electrified: false,
-    dustEffectiveness: 0,
-    stackEffectiveness: 0,
+  // Baseline is uncontrolled AND un-electrified, so the apportionment below is
+  // a property of the plant configuration and does not shift when the
+  // community wins a benefit. Without this, electrification would quietly
+  // re-apportion the budget and change road-dust control as a side effect.
+  const baseline = buildSources({
+    sources, capacityTPerYr, disturbedHa,
+    electrified: false, dustEffectiveness: 0, stackEffectiveness: 0,
   });
-
-  // The single air allocation buys two different kinds of equipment. It is
-  // apportioned by each stream's uncontrolled contribution to receptor PM2.5,
-  // which is the order an engineer would actually spend in. Exposed in the
-  // ledger rather than hidden, so the apportionment can be argued with.
-  //
-  // The split is taken from the UN-ELECTRIFIED baseline deliberately. If it
-  // were taken after electrification, removing diesel would re-apportion the
-  // budget and change road-dust control as a side effect — so a community
-  // benefit would be quietly altering a quantity it has nothing to do with.
-  // Tying the split to the plant configuration keeps each lever to its own
-  // effect, which is the whole reason the sources are itemised.
-  const dustPm25 = uncontrolled.haulRoadPm25 + uncontrolled.handlingPm25 + uncontrolled.dieselPm25;
-  const stackPm25 = uncontrolled.processPm25;
+  const dustPm25 = baseline.filter(s => s.kind === 'extraction').reduce((a, s) => a + s.pm25GPerS, 0);
+  const stackPm25 = baseline.filter(s => s.kind !== 'extraction').reduce((a, s) => a + s.pm25GPerS, 0);
   const shareToDust = dustPm25 + stackPm25 > 0 ? dustPm25 / (dustPm25 + stackPm25) : 1;
 
-  const dustEffectiveness = controlEffectiveness(
-    airControlSpendUsdPerYr * shareToDust,
-    DUST_CONTROL_MAX_EFFECTIVENESS,
-  );
-  const stackEffectiveness = controlEffectiveness(
-    airControlSpendUsdPerYr * (1 - shareToDust),
-    STACK_CONTROL_MAX_EFFECTIVENESS,
-  );
-
-  const controlled = emissionsFor({
-    capacityTPerYr,
-    tier,
-    disturbedHa,
-    electrified,
-    dustEffectiveness,
-    stackEffectiveness,
+  const effAt = (spend: number) => ({
+    dust: controlEffectiveness(spend * shareToDust, DUST_CONTROL_MAX_EFFECTIVENESS),
+    stack: controlEffectiveness(spend * (1 - shareToDust), STACK_CONTROL_MAX_EFFECTIVENESS),
   });
 
-  const receptorDefs: { id: ReceptorAir['id']; label: string; distanceM: number }[] = [
-    { id: 'old_town', label: 'Old Town', distanceM: DISTANCE_TO_OLD_TOWN_M },
-    { id: 'campus', label: 'University Campus', distanceM: DISTANCE_TO_CAMPUS_M },
-  ];
+  const e = effAt(airControlSpendUsdPerYr);
+  const built = buildSources({
+    sources, capacityTPerYr, disturbedHa, electrified,
+    dustEffectiveness: e.dust, stackEffectiveness: e.stack,
+  });
 
-  const receptors = receptorDefs.map(def => {
-    const pm10 = annualMeanConcentrationUgM3(controlled.totalPm10, def.distanceM);
-    const pm25 = annualMeanConcentrationUgM3(controlled.totalPm25, def.distanceM);
+  const concentrationsAt = (spend: number, rect: ReceptorRectPct) => {
+    const eff = effAt(spend);
+    const set = buildSources({
+      sources, capacityTPerYr, disturbedHa, electrified,
+      dustEffectiveness: eff.dust, stackEffectiveness: eff.stack,
+    });
+    let pm10 = 0;
+    let pm25 = 0;
+    for (const s of set) {
+      const d = distanceToReceptorM(s.xPct, s.yPct, rect);
+      const h = RELEASE_HEIGHT_M[s.kind] ?? 0;
+      pm10 += annualMeanConcentrationUgM3(s.pm10GPerS, d, h);
+      pm25 += annualMeanConcentrationUgM3(s.pm25GPerS, d, h);
+      // Dump and tailings dust spreads from an area, not a point.
+      pm10 += annualMeanAreaUgM3(s.areaPm10GPerS, d, disturbedHa);
+    }
+    return { pm10, pm25 };
+  };
 
-    const pm25At = (spend: number) => {
-      const d = controlEffectiveness(spend * shareToDust, DUST_CONTROL_MAX_EFFECTIVENESS);
-      const s = controlEffectiveness(spend * (1 - shareToDust), STACK_CONTROL_MAX_EFFECTIVENESS);
-      const e = emissionsFor({
-        capacityTPerYr,
-        tier,
-        disturbedHa,
-        electrified,
-        dustEffectiveness: d,
-        stackEffectiveness: s,
-      });
-      return annualMeanConcentrationUgM3(e.totalPm25, def.distanceM);
+  const receptors: ReceptorAir[] = receptorDefs.map(rect => {
+    const now = concentrationsAt(airControlSpendUsdPerYr, rect);
+    const nearest = sources.length
+      ? Math.min(...sources.map(s => distanceToReceptorM(s.xPct, s.yPct, rect)))
+      : Number.POSITIVE_INFINITY;
+
+    const meets = (target: { pm10: number; pm25: number }) => (spend: number) => {
+      const c = concentrationsAt(spend, rect);
+      return c.pm10 <= target.pm10 && c.pm25 <= target.pm25;
     };
 
     return {
-      id: def.id,
-      label: def.label,
-      distanceM: def.distanceM,
-      pm10AnnualUgM3: pm10,
-      pm25AnnualUgM3: pm25,
-      pm10Verdict: verdict(pm10, WHO_GUIDELINE_PM10_ANNUAL_UG_M3, EU_LIMIT_PM10_ANNUAL_UG_M3),
-      pm25Verdict: verdict(pm25, WHO_GUIDELINE_PM25_ANNUAL_UG_M3, EU_LIMIT_PM25_ANNUAL_UG_M3),
-      spendToMeetLimitUsdPerYr: solveSpend(pm25At, EU_LIMIT_PM25_ANNUAL_UG_M3),
-      spendToMeetGuidelineUsdPerYr: solveSpend(pm25At, WHO_GUIDELINE_PM25_ANNUAL_UG_M3),
+      id: rect.id,
+      label: rect.label,
+      nearestSourceM: nearest,
+      pm10AnnualUgM3: now.pm10,
+      pm25AnnualUgM3: now.pm25,
+      pm10Verdict: verdict(now.pm10, WHO_GUIDELINE_PM10_ANNUAL_UG_M3, EU_LIMIT_PM10_ANNUAL_UG_M3),
+      pm25Verdict: verdict(now.pm25, WHO_GUIDELINE_PM25_ANNUAL_UG_M3, EU_LIMIT_PM25_ANNUAL_UG_M3),
+      spendToMeetLimitUsdPerYr: solveSpend(
+        meets({ pm10: EU_LIMIT_PM10_ANNUAL_UG_M3, pm25: EU_LIMIT_PM25_ANNUAL_UG_M3 }),
+      ),
+      spendToMeetGuidelineUsdPerYr: solveSpend(
+        meets({ pm10: WHO_GUIDELINE_PM10_ANNUAL_UG_M3, pm25: WHO_GUIDELINE_PM25_ANNUAL_UG_M3 }),
+      ),
     };
   });
 
+  // The gate: worst exceedance across receptors and pollutants.
+  let bindingReceptor: string | null = null;
+  let bindingPollutant: 'PM10' | 'PM2.5' | null = null;
+  let exceedanceUgM3 = 0;
+  for (const r of receptors) {
+    const over10 = r.pm10AnnualUgM3 - EU_LIMIT_PM10_ANNUAL_UG_M3;
+    const over25 = r.pm25AnnualUgM3 - EU_LIMIT_PM25_ANNUAL_UG_M3;
+    if (over10 > exceedanceUgM3) {
+      exceedanceUgM3 = over10;
+      bindingReceptor = r.label;
+      bindingPollutant = 'PM10';
+    }
+    if (over25 > exceedanceUgM3) {
+      exceedanceUgM3 = over25;
+      bindingReceptor = r.label;
+      bindingPollutant = 'PM2.5';
+    }
+  }
+  const compliant = bindingReceptor === null;
+
+  const annualUsd = airControlSpendUsdPerYr;
   return {
-    inputs: { capacityTPerYr, tier, airControlSpendUsdPerYr, disturbedHa, electrified },
-    uncontrolled,
-    controlled,
-    control: { spendUsdPerYr: airControlSpendUsdPerYr, shareToDust, dustEffectiveness, stackEffectiveness },
+    inputs: {
+      capacityTPerYr, airControlSpendUsdPerYr, disturbedHa, electrified,
+      sourceCount: sources.length,
+    },
+    sources: built,
+    control: {
+      spendUsdPerYr: airControlSpendUsdPerYr,
+      shareToDust,
+      dustEffectiveness: e.dust,
+      stackEffectiveness: e.stack,
+    },
     receptors,
+    permitting: {
+      compliant,
+      bindingReceptor,
+      bindingPollutant,
+      exceedanceUgM3,
+      reason: compliant
+        ? null
+        : `${bindingPollutant} at the ${bindingReceptor} exceeds the EU annual limit value by ${exceedanceUgM3.toFixed(1)} ug/m3. The mine cannot be permitted as sited.`,
+    },
     obligation: {
-      annualUsd: airControlSpendUsdPerYr,
+      annualUsd,
       mineLifeYr: lifeYr,
-      lifetimeUsd: airControlSpendUsdPerYr * lifeYr,
+      lifetimeUsd: annualUsd * lifeYr,
+      presentValueUsd: presentValueOfAnnuity(annualUsd, discountRate, lifeYr),
+      discountRate,
     },
   };
 }
@@ -352,28 +502,29 @@ function verdict(value: number, guideline: number, limit: number): AirVerdict {
 }
 
 /**
- * Smallest annual spend reaching a target concentration, by bisection.
- * Returns null when the target is unreachable at any spend, which happens
- * whenever the uncontrolled load is far enough above the target that even the
- * control ceiling cannot close the gap. Solved numerically rather than
- * algebraically because the two control curves have different ceilings and
- * share one budget.
+ * Smallest annual spend satisfying a predicate, by bisection. Returns null when
+ * no spend does — which is the honest answer when a facility is sited so close
+ * to the houses that the control ceiling cannot close the gap, and is the point
+ * at which the developer must move rather than pay.
  */
-function solveSpend(
-  concentrationAt: (spendUsdPerYr: number) => number,
-  targetUgM3: number,
-): number | null {
-  if (concentrationAt(0) <= targetUgM3) return 0;
-  const ceiling = 80_000_000;
-  if (concentrationAt(ceiling) > targetUgM3) return null;
+function solveSpend(satisfiedAt: (spendUsdPerYr: number) => boolean): number | null {
+  if (satisfiedAt(0)) return 0;
+  const ceiling = 200_000_000;
+  if (!satisfiedAt(ceiling)) return null;
   let lo = 0;
   let hi = ceiling;
   for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
-    if (concentrationAt(mid) > targetUgM3) lo = mid;
-    else hi = mid;
+    if (satisfiedAt(mid)) hi = mid;
+    else lo = mid;
   }
   return hi;
+}
+
+function presentValueOfAnnuity(annual: number, rate: number, years: number): number {
+  if (!(years > 0)) return 0;
+  if (rate <= 0) return annual * years;
+  return annual * ((1 - Math.pow(1 + rate, -years)) / rate);
 }
 
 function clamp01(x: number): number {

@@ -349,28 +349,59 @@ export const WIND_EROSION_PM10_KG_PER_HA_YR = 400;
  */
 export const DIESEL_PM25_G_PER_T_MOVED = 1.2;
 
-/* ---- Process emissions by supply-chain tier -------------------------
- * Additional stack emissions, g/s, uncontrolled, at nominal throughput.
- * Refining roasts and acid-leaches: SO2 and acid mist. Processing mixes
- * and coats cathode and anode material: fine particulate and solvent.
- * Advanced manufacturing runs dry rooms and cell assembly: solvent
- * dominated, little particulate.
+/* ---- Process emissions, per facility kind ---------------------------
+ * Stack emissions in g/s at the nominal throughput below, PER FACILITY
+ * KIND rather than cumulatively by tier, because each facility is now a
+ * separate source at its own place on the map and disperses from there.
+ *
+ * Refining roasts and acid-leaches: SO2 and acid mist, the largest stack
+ * source. Processing mixes and coats cathode and anode material: fine
+ * particulate and solvent. Advanced manufacturing runs dry rooms and
+ * cell assembly, which is solvent-dominated with little particulate.
+ *
+ * A full chain sums to 2.9 g/s PM2.5 and 7.2 g/s SO2, which is where the
+ * earlier cumulative-by-tier figures landed.
  *
  * CALIBRATION against the tier structure already in the application
- * rather than against a measured plant, and flagged as the weakest set
- * of numbers in this module.
+ * rather than against a measured plant. Still the weakest set of numbers
+ * in this file.
  */
-export const TIER_PROCESS_PM25_G_PER_S: Record<string, number> = {
+export const NOMINAL_THROUGHPUT_T_PER_YR = 3_000_000;
+
+/**
+ * Release height by facility kind, m.
+ *
+ * Added after the first run of the siting model, which released everything at
+ * ground level and therefore blamed the refinery chimney for a problem that
+ * belongs to the haul road. Plume rise is the entire reason tall stacks exist:
+ * a 45 m release barely reaches the ground within a few hundred metres, while
+ * dust raised by a truck is already there.
+ *
+ * Getting this wrong does not just change a number, it changes which source
+ * binds — and a model that points the community at the wrong source would
+ * send them to negotiate for the wrong thing.
+ *
+ * Fugitive sources (haulage, handling, wind erosion) are at grade by
+ * definition. Process stacks on a plant of this size run 40-60 m.
+ */
+export const RELEASE_HEIGHT_M: Record<string, number> = {
+  extraction: 0,
+  refining: 45,
+  processing: 45,
+  advanced_manufacturing: 30,
+};
+
+export const FACILITY_PM25_G_PER_S: Record<string, number> = {
   extraction: 0,
   refining: 1.8,
-  processing: 2.6,
-  advanced_manufacturing: 2.9,
+  processing: 0.8,
+  advanced_manufacturing: 0.3,
 };
-export const TIER_PROCESS_SO2_G_PER_S: Record<string, number> = {
+export const FACILITY_SO2_G_PER_S: Record<string, number> = {
   extraction: 0,
   refining: 6.0,
-  processing: 7.2,
-  advanced_manufacturing: 7.2,
+  processing: 1.2,
+  advanced_manufacturing: 0.0,
 };
 
 /* ---- Control effectiveness ------------------------------------------
@@ -400,13 +431,43 @@ export const WIND_SPEED_M_PER_S = 3.0;
  */
 export const RECEPTOR_SECTOR_FREQUENCY = 0.15;
 
-/* ---- Receptor distances for air ------------------------------------
- * PLACEHOLDER, as with the water receptors: these should come from the
- * map once siting is expressed in kilometres. The Old Town distance is
- * the same as the cistern's because they are the same place.
+/* ---- Air receptors: geometry, not a placeholder ---------------------
+ * REVISED 24 October 2026. These were fixed distances of 2 km and 3.5 km,
+ * which I had flagged as placeholders and which turned out to be the
+ * reason the air dimension never bound. The map is 10 km across, so one
+ * map-percent is 100 m, and the ore body's southern edge sits 4 percent
+ * from the Old Town's northern edge: 400 m, not 2 km. Ground-level
+ * concentration under a Gaussian plume goes as roughly 1/x^2, so the
+ * error was a factor of about fifteen in the answer.
+ *
+ * Distance is now measured from each placed facility to the nearest edge
+ * of the receptor, which is the right convention for a limit value: EU
+ * compliance is assessed where people are actually exposed, not at the
+ * centroid of a district. It also makes siting an air decision, since
+ * the developer already chooses where these facilities go.
+ *
+ * MIRRORS src/data/mapScale.ts and src/components/map/noBuildZones.ts.
+ * The duplication is deliberate — the model layer must not import from
+ * components — but the two should be unified when siting is expressed in
+ * kilometres throughout.
  */
-export const DISTANCE_TO_OLD_TOWN_M = 2_000;
-export const DISTANCE_TO_CAMPUS_M = 3_500;
+export const MAP_EXTENT_KM = 10;
+export const MAP_PCT_TO_M = (MAP_EXTENT_KM * 1000) / 100;
+
+export type ReceptorRectPct = {
+  id: string;
+  label: string;
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+};
+
+/** Inhabited and occupied places where exposure is assessed. */
+export const AIR_RECEPTORS: ReceptorRectPct[] = [
+  { id: 'old_town', label: 'Old Town', top: 35, left: 30, width: 32, height: 27 },
+  { id: 'campus', label: 'University Campus', top: 52, left: 68, width: 17, height: 15 },
+];
 
 /* ---- Thresholds -----------------------------------------------------
  * Two of them, deliberately. The legal limit is what the developer must
