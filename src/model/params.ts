@@ -272,23 +272,18 @@ export const TAILINGS_AREA_INTERCEPT_HA = 13;
 /**
  * Years of water-table recovery per metre of drawdown once pumping stops.
  *
- * NEEDS A DECISION, flagged 24 October 2026.
+ * CURRENTLY UNUSED. The canoe's timing no longer depends on it: the galleries
+ * are the lowest void in the system and fill from recharge by volume, which is
+ * the right physics and gives months rather than decades. Nothing else calls
+ * reboundYears().
  *
- * This was set when drawdown at the workings came from the steady-state Thiem
- * solution and ran to 2-3 m, giving a rebound of about 3 years at 2 km2 and 12
- * at 8 km2. The water model was rebuilt on transient Theis with aquifer
- * compartments, and drawdown at the workings is now 4.1 m at 0.5 km2 rising to
- * 14.4 m at 8 km2. The same coefficient therefore now yields 16 to 58 years.
+ * Kept because regional recovery — and so whether the cistern ever refills — is
+ * reported from the storage deficit against recharge, and a coefficient of this
+ * kind would be the natural way to express it if that is ever modelled
+ * explicitly rather than as a simple ratio. If it is still unused next time
+ * this file is opened, delete it and reboundYears() with it.
  *
- * Which is right is a judgement, not an error. Deep workings genuinely take
- * decades to rebound, so 40-plus years at the larger sizes is defensible. But
- * it makes the canoe a promise maturing three generations out — 54 years after
- * a mine that itself runs 20 — and a benefit nobody alive will use is arguably
- * not a benefit at all. The competing reading is that conduit flow refills a
- * karst system far faster than porous rock, which would put this nearer 1.0.
- *
- * Left at 4.0 deliberately rather than quietly retuned, because changing it
- * changes what the canoe means.
+ * No decision needed on the value while nothing reads it.
  */
 export const REBOUND_YR_PER_M_DRAWDOWN = 4.0;
 

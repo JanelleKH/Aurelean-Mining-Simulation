@@ -255,6 +255,7 @@ export function isPlausibleMinePlan(reserveT: number, capacityTPerYr: number): b
  * ------------------------------------------------------------------ */
 
 /** Years for the water table to recover once pumping stops. */
+/** Currently unused — see REBOUND_YR_PER_M_DRAWDOWN in params.ts. */
 export function reboundYears(drawdownAtWorkingsM: number): number {
   return Math.max(0, drawdownAtWorkingsM) * REBOUND_YR_PER_M_DRAWDOWN;
 }
