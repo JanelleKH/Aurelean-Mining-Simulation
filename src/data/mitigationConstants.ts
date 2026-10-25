@@ -28,6 +28,42 @@ export const WASTE_SPEND_MAX_USD = MITIGATION_SPEND_MIN_USD + 6 * MITIGATION_STE
 export const AIR_SPEND_MAX_USD = 6_000_000;
 export const BASELINE_WATER_WASTE_MITIGATION_USD = MITIGATION_SPEND_MIN_USD * 2;
 
+/* ------------------------------------------------------------------ *
+ * Financial assurance for air control
+ *
+ * Added 24 October 2026. Air control is capital that must then be
+ * OPERATED — water, power, reagent, filter media, labour — at roughly
+ * 15% of capital a year. Until now the budget charged only the
+ * equipment, so a commitment to clean air cost nothing to keep and
+ * could not compete with a community benefit.
+ *
+ * Regulators do not let operators carry that obligation on a promise:
+ * they require financial assurance, posted up front and reviewed on a
+ * three-to-five-year cycle. Three years is the conservative end, and it
+ * is what the budget now charges alongside the equipment.
+ *
+ * The arithmetic that matters: the supply-chain tier ADDS its air
+ * allocation to the budget and the allocation is then spent, so air used
+ * to net to exactly zero — the cancellation found in the 23 September
+ * trial. With assurance charged on top, every dollar of air control now
+ * costs 45 cents of community benefits. At the $6M cap that is $2.7M,
+ * roughly one benefit. Air bites without swamping the budget.
+ * ------------------------------------------------------------------ */
+
+/** Years of operating cost that must be secured before operating. */
+export const AIR_ASSURANCE_YEARS = 3;
+
+/** Annual operating cost as a share of control capital. Mirrors src/model/params.ts. */
+export const AIR_OM_FRACTION_OF_CAPITAL = 0.15;
+
+/** Each dollar of air capital costs this much budget, equipment plus assurance. */
+export const AIR_BUDGET_MULTIPLIER = 1 + AIR_OM_FRACTION_OF_CAPITAL * AIR_ASSURANCE_YEARS;
+
+/** Assurance that must be posted for a given air-control capital spend. */
+export function airAssuranceUsd(airAllocUsd: number): number {
+  return Math.max(0, airAllocUsd) * AIR_OM_FRACTION_OF_CAPITAL * AIR_ASSURANCE_YEARS;
+}
+
 export type AirTierId = 'extraction' | 'refining' | 'processing' | 'advanced_manufacturing';
 
 export const AIR_TIERS: {
@@ -105,7 +141,7 @@ export const clampMitigationLeverSpend = (
   if (cap < min) return 0;
   const r = Number.isFinite(raw) ? raw : min;
   const t = Math.max(min, Math.min(r, cap));
-  let k = Math.round((t - min) / step);
+  const k = Math.round((t - min) / step);
   let out = min + k * step;
   if (out > cap) {
     const kMax = Math.floor((cap - min) / step);

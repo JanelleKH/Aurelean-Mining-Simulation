@@ -13,6 +13,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { computeWaterLedger, computePostClosure } from '../model/index';
 import { COMMUNITY_BENEFITS } from '../data/communityBenefits';
 import { LedgerPanel } from './LedgerPanel';
 import {
@@ -400,6 +401,15 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
             Air at the Old Town: see the ledger below
           </span>
         </div>
+        {b.airAssurance > 0 && (
+          <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1 mt-1 leading-snug">
+            Plus {formatCurrency(b.airAssurance)} operating assurance, charged to this budget.
+            Control equipment has to be run — water, power, reagent, labour, about 15% of its
+            capital a year — and the regulator requires three years of that secured before you
+            operate. So air costs {formatCurrency(b.airAssurance + b.allocAir)} in all, and the
+            assurance is the part that comes out of community benefits.
+          </div>
+        )}
         {b.airClamped && (
           <div className="text-[10px] font-bold text-red-600">
             Not enough unassigned budget for that level.
@@ -482,6 +492,48 @@ export const CommunityBenefitsSection: React.FC<{
           );
         })}
       </div>
+      {selectedBenefits.includes('canoe') && <CanoeLiability b={b} />}
+    </div>
+  );
+};
+
+/**
+ * The canoe's headline price is $0.9M and its real cost is not.
+ *
+ * Every other benefit is bought once. This one is an obligation that begins
+ * when the mine ends: the galleries must stay open, the water must be treated
+ * after rebound, and access must be maintained for as long as anyone is
+ * floated through it. None of that is charged to the budget — which is not a
+ * modelling convenience but a faithful account of how post-closure liabilities
+ * actually work, and why they so often end up with the public.
+ *
+ * Shown rather than charged, so the team can see what they have taken on.
+ */
+const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
+  const water = computeWaterLedger({
+    mineSizeKm2: b.selectedSize.value,
+    capacityTPerYr: b.selectedCapacity.value,
+    waterMitigationSpendUsd: b.allocWater,
+  });
+  const pc = computePostClosure({
+    mineSizeKm2: b.selectedSize.value,
+    capacityTPerYr: b.selectedCapacity.value,
+    drawdownAtWorkingsM: water.drawdownAtWorkingsM,
+    backfillFraction: 0,
+  });
+  const ratio = pc.canoeCost.recurringPvUsd / Math.max(1, 900_000);
+  return (
+    <div className="mt-2 text-[10px] text-amber-900 bg-amber-50 border border-amber-300 rounded p-2 leading-snug">
+      <span className="font-bold">
+        The canoe costs {formatCurrency(900_000)} to build and{' '}
+        {formatCurrency(pc.canoeCost.annualRecurringUsd)} a year to keep.
+      </span>{' '}
+      Over fifty years that is {formatCurrency(pc.canoeCost.recurringPvUsd)} in present value —{' '}
+      {ratio.toFixed(0)} times what you are paying for it, and none of it is charged to this
+      budget. The galleries cannot open until the mine closes and the water table rebounds, about{' '}
+      {pc.yearsToNavigableAfterClosure.toFixed(0)} years after that. Keeping them open also means
+      not backfilling them, and it is the backfill that protects the Old Town and the cistern from
+      subsidence. Whoever is here in {pc.mineLifeYr.toFixed(0)} years inherits this.
     </div>
   );
 };

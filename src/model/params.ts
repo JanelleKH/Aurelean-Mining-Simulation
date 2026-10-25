@@ -269,7 +269,27 @@ export const TAILINGS_AREA_INTERCEPT_HA = 13;
  * Post-closure rebound
  * ------------------------------------------------------------------ */
 
-/** Years of water-table recovery per metre of drawdown once pumping stops. */
+/**
+ * Years of water-table recovery per metre of drawdown once pumping stops.
+ *
+ * NEEDS A DECISION, flagged 24 October 2026.
+ *
+ * This was set when drawdown at the workings came from the steady-state Thiem
+ * solution and ran to 2-3 m, giving a rebound of about 3 years at 2 km2 and 12
+ * at 8 km2. The water model was rebuilt on transient Theis with aquifer
+ * compartments, and drawdown at the workings is now 4.1 m at 0.5 km2 rising to
+ * 14.4 m at 8 km2. The same coefficient therefore now yields 16 to 58 years.
+ *
+ * Which is right is a judgement, not an error. Deep workings genuinely take
+ * decades to rebound, so 40-plus years at the larger sizes is defensible. But
+ * it makes the canoe a promise maturing three generations out — 54 years after
+ * a mine that itself runs 20 — and a benefit nobody alive will use is arguably
+ * not a benefit at all. The competing reading is that conduit flow refills a
+ * karst system far faster than porous rock, which would put this nearer 1.0.
+ *
+ * Left at 4.0 deliberately rather than quietly retuned, because changing it
+ * changes what the canoe means.
+ */
 export const REBOUND_YR_PER_M_DRAWDOWN = 4.0;
 
 /** Share of total gallery length lying near the rebound horizon. */

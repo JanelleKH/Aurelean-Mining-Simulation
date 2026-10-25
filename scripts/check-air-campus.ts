@@ -7,6 +7,12 @@
  */
 
 import {
+  AIR_BUDGET_MULTIPLIER,
+  airAssuranceUsd,
+  computeTotalBudget,
+} from '../src/data/mitigationConstants.ts';
+import { COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
+import {
   NO_BUILD_AREAS,
   normalizeNoBuildId,
   getNoBuildAreaLabel,
@@ -14,7 +20,9 @@ import {
 import { NO_BUILD_ZONE_RECTS, isPointInNoBuildZone } from '../src/components/map/noBuildZones.ts';
 import {
   computeAirLedger,
+  computePostClosure,
   computeWasteLedger,
+  computeWaterLedger,
   mineLifeYr,
   ORE_T_PER_KM2,
   type AirSource,
@@ -271,6 +279,95 @@ console.log('');
   const keys = Object.keys(ledger(SOUTH) as unknown as Record<string, unknown>);
   check('air ledger exposes no cross-dimension score',
     !keys.some(k => /score|utility|aqi/i.test(k)), keys.join(','));
+}
+
+/* ========== BUDGET: DOES AIR ACTUALLY CROWD OUT BENEFITS? ========== */
+console.log('\n=== AIR AGAINST THE BUDGET ===\n');
+
+// Scenario 4 km2 (mineIdx 3) at 3 Mt/yr (capacityIdx 2).
+const MINE_IDX = 3, CAP_IDX = 2;
+{
+  const none = computeTotalBudget(MINE_IDX, CAP_IDX, 0);
+  const maxed = computeTotalBudget(MINE_IDX, CAP_IDX, 6_000_000);
+  const assurance = airAssuranceUsd(6_000_000);
+  // What is left for benefits: budget minus the air capital minus its assurance.
+  const leftWithout = none - 0 - airAssuranceUsd(0);
+  const leftWith = maxed - 6_000_000 - assurance;
+  console.log(`budget with no air:   $${(none / 1e6).toFixed(1)}M  -> for benefits $${(leftWithout / 1e6).toFixed(1)}M`);
+  console.log(`budget with $6M air:  $${(maxed / 1e6).toFixed(1)}M  -> for benefits $${(leftWith / 1e6).toFixed(1)}M`);
+  console.log(`assurance charged:    $${(assurance / 1e6).toFixed(2)}M\n`);
+
+  // (l) Air must genuinely cost something. Before this change the tier's budget
+  //     addition and its spend cancelled exactly, so air was free — the
+  //     cancellation found in the 23 September trial.
+  check('buying air control reduces what is left for benefits',
+    leftWith < leftWithout,
+    `$${(leftWithout / 1e6).toFixed(1)}M -> $${(leftWith / 1e6).toFixed(1)}M`);
+
+  // (m) And the amount it costs must be exactly the assurance, not the capital,
+  //     because the tier still adds the capital to the budget.
+  check('the cost of air is precisely its operating assurance',
+    Math.abs((leftWithout - leftWith) - assurance) < 1,
+    `$${((leftWithout - leftWith) / 1e6).toFixed(2)}M lost, assurance $${(assurance / 1e6).toFixed(2)}M`);
+
+  // (n) "A bit", not a swamping. If air ate most of the budget the exercise
+  //     would collapse into a single decision.
+  const share = assurance / maxed;
+  check('air takes a real but bounded share of the budget',
+    share > 0.05 && share < 0.20,
+    `${(share * 100).toFixed(0)}% of a $${(maxed / 1e6).toFixed(1)}M budget`);
+
+  // (o) It should cost roughly one benefit — enough to be felt in the room.
+  const cheapest = Math.min(...COMMUNITY_BENEFITS.map(x => x.cost));
+  check('the assurance costs at least one community benefit',
+    assurance >= cheapest,
+    `$${(assurance / 1e6).toFixed(2)}M against a cheapest benefit of $${(cheapest / 1e6).toFixed(1)}M`);
+
+  check('the air budget multiplier is self-consistent',
+    Math.abs(6_000_000 * AIR_BUDGET_MULTIPLIER - (6_000_000 + assurance)) < 1,
+    `x${AIR_BUDGET_MULTIPLIER.toFixed(2)}`);
+}
+
+/* ================= THE CANOE ================= */
+console.log('\n=== THE CANOE: CHEAP TO PROMISE, EXPENSIVE TO KEEP ===\n');
+{
+  const canoe = COMMUNITY_BENEFITS.find(x => x.id === 'canoe')!;
+  const dearest = Math.max(...COMMUNITY_BENEFITS.map(x => x.cost));
+
+  // (p) It must be cheap up front, or it is not a trap worth setting.
+  check('the canoe is among the cheapest benefits to promise',
+    canoe.cost <= 1_000_000,
+    `$${(canoe.cost / 1e6).toFixed(1)}M against a dearest of $${(dearest / 1e6).toFixed(1)}M`);
+
+  const L = computeWaterLedger({ mineSizeKm2: 4, capacityTPerYr: 3_000_000, waterMitigationSpendUsd: 300_000 });
+  const pc = computePostClosure({
+    mineSizeKm2: 4, capacityTPerYr: 3_000_000,
+    drawdownAtWorkingsM: L.drawdownAtWorkingsM, backfillFraction: 0,
+  });
+  console.log(`capital charged      $${(canoe.cost / 1e6).toFixed(2)}M`);
+  console.log(`annual upkeep        $${(pc.canoeCost.annualRecurringUsd / 1e6).toFixed(2)}M`);
+  console.log(`50-year PV, unfunded $${(pc.canoeCost.recurringPvUsd / 1e6).toFixed(1)}M`);
+  console.log(`opens                ${pc.yearsToNavigableAfterClosure.toFixed(0)} yr after closure, itself ${pc.mineLifeYr.toFixed(0)} yr away\n`);
+
+  // (q) The deferred cost must dwarf the price, or the point is not made.
+  check('the deferred cost is many times the price charged',
+    pc.canoeCost.recurringPvUsd > 5 * canoe.cost,
+    `$${(pc.canoeCost.recurringPvUsd / 1e6).toFixed(1)}M against $${(canoe.cost / 1e6).toFixed(1)}M`);
+
+  // (r) It must be flagged as deferred, so the interface can say so.
+  check('the canoe is marked as carrying a deferred liability',
+    canoe.deferredLiability === true);
+
+  // (s) And it must be the ONLY one so marked — if everything is deferred,
+  //     nothing is, and the contrast that makes it teachable disappears.
+  check('it is the only benefit so marked',
+    COMMUNITY_BENEFITS.filter(x => x.deferredLiability).length === 1);
+
+  // (t) It cannot be delivered within the mine's life, which is what makes it
+  //     a promise rather than a payment.
+  check('the canoe cannot open until well after the mine closes',
+    pc.yearsToNavigableAfterClosure > 1,
+    `${pc.yearsToNavigableAfterClosure.toFixed(0)} years after closure`);
 }
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}\n`);

@@ -13,6 +13,8 @@ import {
   MINE_SIZES,
   CAPACITIES,
   AIR_TIERS,
+  AIR_BUDGET_MULTIPLIER,
+  airAssuranceUsd,
   MITIGATION_SPEND_MIN_USD,
   MITIGATION_STEP_USD,
   WATER_SPEND_MAX_USD,
@@ -143,7 +145,11 @@ export function useMitigationBudgetV2({
 
   const canContinueFromSiting = scenarioLocked && phase === 'siting' && sitingValidation.ok;
 
-  const totalAllocated = allocWater + allocWaste + allocAir + communitySpend;
+  // Air costs the equipment plus the assurance that it will be operated.
+  // Without this the tier's budget addition and its spend cancelled exactly,
+  // and air mitigation was free.
+  const airAssurance = airAssuranceUsd(allocAir);
+  const totalAllocated = allocWater + allocWaste + allocAir + airAssurance + communitySpend;
   const grossUnassigned = totalBudget - totalAllocated;
 
   const { avgChainSpreadPct, spreadPenaltyPct, sitingPenaltyUsd } = useMemo(
@@ -166,15 +172,18 @@ export function useMitigationBudgetV2({
 
   const maxWaterSpendAffordable = Math.max(
     0,
-    totalBudget - allocWaste - allocAir - communitySpend - sitingPenaltyUsd
+    totalBudget - allocWaste - allocAir - airAssurance - communitySpend - sitingPenaltyUsd
   );
   const maxWasteSpendAffordable = Math.max(
     0,
-    totalBudget - allocWater - allocAir - communitySpend - sitingPenaltyUsd
+    totalBudget - allocWater - allocAir - airAssurance - communitySpend - sitingPenaltyUsd
   );
+  // Divided by the multiplier because each dollar allocated to air also draws
+  // its assurance from the same budget.
   const maxAirSpendAffordable = Math.max(
     0,
-    totalBudget - allocWater - allocWaste - communitySpend - sitingPenaltyUsd
+    (totalBudget - allocWater - allocWaste - communitySpend - sitingPenaltyUsd) /
+      AIR_BUDGET_MULTIPLIER
   );
 
   const syncWaterOutcome = useCallback(
@@ -420,6 +429,7 @@ export function useMitigationBudgetV2({
     discretionaryPoolUsd,
     totalBudget,
     communitySpend,
+    airAssurance,
     unassignedBudget,
     budgetOverrun,
     avgChainSpreadPct,
