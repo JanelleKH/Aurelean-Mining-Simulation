@@ -14,7 +14,7 @@ import {
   airAssuranceUsd,
   computeTotalBudget,
 } from '../src/data/mitigationConstants.ts';
-import { COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
+import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
 import {
   NO_BUILD_AREAS,
   normalizeNoBuildId,
@@ -422,6 +422,33 @@ check('the 8 km2 galleries are the longest yet still cannot be held',
   canoeAt(8).navigableLengthM > canoeAt(4).navigableLengthM
     && !canoeAt(8).water.canBeHeld,
   `${canoeAt(8).navigableLengthM.toFixed(0)}m of gallery, surplus ${(canoeAt(8).water.surplusM3PerYr / 1e6).toFixed(2)}M m3/yr`);
+
+/* ===== THE CANOE CANNOT BE BOUGHT WHERE IT CANNOT EXIST ===== */
+console.log('\n=== CANOE AVAILABILITY GATE ===\n');
+for (const km2 of MINE_SIZES_KM2) {
+  const a = canoeAvailability({ mineSizeKm2: km2, capacityTPerYr: 3_000_000 });
+  console.log(`${km2.toFixed(1).padStart(4)}  ${a.deliverable ? 'deliverable' : 'REFUSED    '}  ${a.reason ? a.reason.slice(0, 72) + '...' : ''}`);
+}
+console.log('');
+
+// (y) The gate must refuse the largest mine. Without it a team can be charged
+//     for a benefit the model says cannot exist — paying for nothing.
+check('the canoe cannot be selected at 8 km2',
+  !canoeAvailability({ mineSizeKm2: 8, capacityTPerYr: 3_000_000 }).deliverable);
+check('and the refusal explains it is water, not money',
+  /water|aquifer|recharge/i.test(canoeAvailability({ mineSizeKm2: 8, capacityTPerYr: 3_000_000 }).reason ?? ''));
+
+// (z) And at the small end, for the other reason.
+check('the canoe cannot be selected at 0.5 km2',
+  !canoeAvailability({ mineSizeKm2: 0.5, capacityTPerYr: 3_000_000 }).deliverable);
+check('and that refusal explains it is gallery length',
+  /gallery|navigable|route/i.test(canoeAvailability({ mineSizeKm2: 0.5, capacityTPerYr: 3_000_000 }).reason ?? ''));
+
+// (aa) It must remain buyable in the middle, or the benefit is dead.
+for (const km2 of [1, 2, 4]) {
+  check(`the canoe CAN be selected at ${km2} km2`,
+    canoeAvailability({ mineSizeKm2: km2, capacityTPerYr: 3_000_000 }).deliverable);
+}
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}\n`);
 process.exit(failures === 0 ? 0 : 1);

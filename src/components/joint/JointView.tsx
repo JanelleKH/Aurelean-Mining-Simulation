@@ -10,7 +10,7 @@ import { DraggableRegionalMap } from '../map/DraggableRegionalMap';
 import type { BenefitPlacement } from '../map/DraggableRegionalMap';
 import { BenefitUtilityCostChart, type LeverAllocations } from '../BenefitUtilityCostChart';
 import { JointDeveloperPanel } from './JointDeveloperPanel';
-import { getCommunityBenefit, type CommunityBenefitId } from '../../data/communityBenefits';
+import { getCommunityBenefit, type CommunityBenefitId, canoeAvailability } from '../../data/communityBenefits';
 import {
   getMaxNoBuildZonesForMineSizeKm2,
   canToggleNoBuildZone,
@@ -158,15 +158,28 @@ export const JointView: React.FC = () => {
           delete next[benefit.id];
           return next;
         });
-      } else if (unassignedBudget >= benefit.cost) {
-        setSelectedBenefits(prev => [...prev, id]);
       } else {
-        alert(
-          'Not enough unassigned budget. Reduce water or waste spend, or unlock scenario to change mine/capacity/facility.'
-        );
+        // Physical precondition before price, same rule as the developer flow.
+        if (id === 'canoe' && selectedSize && selectedCapacity) {
+          const avail = canoeAvailability({
+            mineSizeKm2: selectedSize.value,
+            capacityTPerYr: selectedCapacity.value,
+          });
+          if (!avail.deliverable) {
+            alert(avail.reason ?? 'The canoe cannot be delivered at this mine size.');
+            return;
+          }
+        }
+        if (unassignedBudget >= benefit.cost) {
+          setSelectedBenefits(prev => [...prev, id]);
+        } else {
+          alert(
+            'Not enough unassigned budget. Reduce water or waste spend, or unlock scenario to change mine/capacity/facility.'
+          );
+        }
       }
     },
-    [selectedBenefits, unassignedBudget]
+    [selectedBenefits, unassignedBudget, selectedSize, selectedCapacity]
   );
 
   const handleBenefitPlace = useCallback(
@@ -175,6 +188,16 @@ export const JointView: React.FC = () => {
       const benefit = getCommunityBenefit(id);
       if (!benefit) return;
       if (!selectedBenefits.includes(id)) {
+        if (id === 'canoe' && selectedSize && selectedCapacity) {
+          const avail = canoeAvailability({
+            mineSizeKm2: selectedSize.value,
+            capacityTPerYr: selectedCapacity.value,
+          });
+          if (!avail.deliverable) {
+            alert(avail.reason ?? 'The canoe cannot be delivered at this mine size.');
+            return;
+          }
+        }
         if (unassignedBudget < benefit.cost) {
           alert(
             'Not enough unassigned budget. Reduce water or waste spend, or unlock scenario to change mine/capacity/facility.'
@@ -185,7 +208,7 @@ export const JointView: React.FC = () => {
       }
       setBenefitPlacements(prev => ({ ...prev, [id]: { xPct, yPct } }));
     },
-    [selectedBenefits, unassignedBudget, workflowPhase]
+    [selectedBenefits, unassignedBudget, workflowPhase, selectedSize, selectedCapacity]
   );
 
   const handleBenefitRemove = useCallback((id: CommunityBenefitId) => {

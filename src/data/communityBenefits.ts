@@ -1,3 +1,5 @@
+import { computeWaterLedger, computePostClosure } from '../model/index';
+
 export type CommunityBenefitId = 'park' | 'irrigation' | 'canoe' | 'energy' | 'research';
 
 export interface CommunityBenefit {
@@ -38,4 +40,60 @@ export const COMMUNITY_BENEFITS: CommunityBenefit[] = [
 
 export function getCommunityBenefit(id: string): CommunityBenefit | undefined {
   return COMMUNITY_BENEFITS.find(b => b.id === id);
+}
+
+/**
+ * Whether the underground canoe can physically be delivered at this scenario.
+ *
+ * The canoe is the only benefit with a physical precondition rather than just a
+ * price, and until now nothing enforced it: a team could buy it at any mine
+ * size and be charged for something the model says cannot exist.
+ *
+ * It fails at both ends, for different reasons. Too small a mine leaves too
+ * little gallery at the rebound horizon to be a route. Too large a mine leaves
+ * the aquifer owing more to its own recovery each year than it receives, so
+ * there is no spare recharge to hold the galleries flooded. Created by the
+ * harm and destroyed by too much of it.
+ *
+ * Tested at zero backfill — the best case. Choosing to backfill later destroys
+ * the route as well, but that is a separate decision with its own consequence.
+ */
+export function canoeAvailability(input: {
+  mineSizeKm2: number;
+  capacityTPerYr: number;
+}): { deliverable: boolean; reason: string | null } {
+  const water = computeWaterLedger({
+    mineSizeKm2: input.mineSizeKm2,
+    capacityTPerYr: input.capacityTPerYr,
+    waterMitigationSpendUsd: 0,
+  });
+  const pc = computePostClosure({
+    mineSizeKm2: input.mineSizeKm2,
+    capacityTPerYr: input.capacityTPerYr,
+    storageDepletedM3: water.balance.storageDepletedM3,
+    backfillFraction: 0,
+  });
+
+  if (pc.canoeVerdict === 'not_enough_water') {
+    return {
+      deliverable: false,
+      reason:
+        `At ${input.mineSizeKm2} km² the canoe cannot be delivered, and no amount of money changes ` +
+        `that. The galleries would flood within months of closure, but holding them needs about ` +
+        `${Math.round(pc.water.reservationM3PerYr / 1000)}k m³ a year of throughflow and the aquifer ` +
+        `has none to spare: it owes ${(pc.water.recoveryCallM3PerYr / 1e6).toFixed(1)}M m³ a year ` +
+        `against the ${(pc.water.rechargeM3PerYr / 1e6).toFixed(1)}M m³ it receives, just to make ` +
+        `good what this mine took. A smaller mine leaves enough water. This one does not.`,
+    };
+  }
+  if (pc.canoeVerdict === 'too_short') {
+    return {
+      deliverable: false,
+      reason:
+        `At ${input.mineSizeKm2} km² the workings are too small to leave a navigable route: about ` +
+        `${Math.round(pc.navigableLengthM)} m of gallery at the rebound horizon, where a usable ` +
+        `route needs 800 m. A larger mine would drive enough gallery.`,
+    };
+  }
+  return { deliverable: true, reason: null };
 }

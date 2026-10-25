@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { canoeAvailability, COMMUNITY_BENEFITS } from '../data/communityBenefits';
 import { serializeIndustrialPlacements, serializeBenefitPlacements } from '../data/mapOverlap';
 import {
   formatFacilityPlacementSummary,
@@ -339,6 +339,18 @@ export function useMitigationBudgetV2({
     if (selectedBenefits.includes(id)) {
       onToggleBenefit(id);
       return;
+    }
+    // Physical precondition before price. The canoe is the only benefit that
+    // can be impossible rather than merely unaffordable.
+    if (id === 'canoe') {
+      const avail = canoeAvailability({
+        mineSizeKm2: selectedSize.value,
+        capacityTPerYr: selectedCapacity.value,
+      });
+      if (!avail.deliverable) {
+        alert(avail.reason ?? 'The canoe cannot be delivered at this mine size.');
+        return;
+      }
     }
     if (unassignedBudget >= benefit.cost) {
       onToggleBenefit(id);
