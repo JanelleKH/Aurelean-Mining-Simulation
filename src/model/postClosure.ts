@@ -193,6 +193,15 @@ export function computePostClosure(input: {
   // Cost structure. Capital is access works only: a portal, a landing, lighting.
   // Recurring scales with the length that has to be kept open and treated, and
   // with the volume of water that rebounds through exposed workings.
+  // NOTE, flagged 25 October. This is an ESTIMATE OF THE WORKS and it scales
+  // with how much gallery has to be made safe and lit: about $0.42M at 1 km2
+  // and $1.6M at 8 km2. The community benefits list charges a single flat
+  // price regardless of size. The two are therefore different numbers for the
+  // same thing, and only the flat one is ever deducted from a budget.
+  //
+  // Whether the canoe's price should scale with mine size is a design decision,
+  // not a defect to be silently patched — so the figures are kept distinct and
+  // the interface quotes the charged price, never this one.
   const capitalUsd = 250_000 + 120 * navigableLengthM;
   const annualRecurringUsd = 40_000 + 85 * navigableLengthM + 0.0009 * unfilledVoidM3;
   const recurringPvUsd = presentValueOfAnnuity(annualRecurringUsd, discountRate, horizonYr);

@@ -523,7 +523,12 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
     storageDepletedM3: water.balance.storageDepletedM3,
     backfillFraction: 0,
   });
-  const ratio = pc.canoeCost.recurringPvUsd / Math.max(1, 900_000);
+  // Read the price the budget actually charges rather than repeating a literal.
+  // Hard-coding it meant the panel would keep quoting a figure the benefits list
+  // no longer held — the same "two numbers that cannot both be true" fault as
+  // the air cost units, in a third place.
+  const canoePriceUsd = COMMUNITY_BENEFITS.find(x => x.id === 'canoe')?.cost ?? 0;
+  const ratio = pc.canoeCost.recurringPvUsd / Math.max(1, canoePriceUsd);
   return (
     <div className="mt-2 text-[10px] text-amber-900 bg-amber-50 border border-amber-300 rounded p-2 leading-snug">
       {pc.canoeVerdict === 'not_enough_water' ? (
@@ -547,7 +552,7 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
       ) : (
         <>
       <span className="font-bold">
-        The canoe costs {formatCurrency(900_000)} to build and{' '}
+        The canoe costs {formatCurrency(canoePriceUsd)} to build and{' '}
         {formatCurrency(pc.canoeCost.annualRecurringUsd)} a year to keep.
       </span>{' '}
       Over fifty years that is {formatCurrency(pc.canoeCost.recurringPvUsd)} in present value —{' '}
