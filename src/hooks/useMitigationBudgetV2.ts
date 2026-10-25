@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { canoeAvailability, COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { benefitCostUsd, canoeAvailability, COMMUNITY_BENEFITS } from '../data/communityBenefits';
 import { serializeIndustrialPlacements, serializeBenefitPlacements } from '../data/mapOverlap';
 import {
   formatFacilityPlacementSummary,
@@ -118,10 +118,18 @@ export function useMitigationBudgetV2({
       scenarioLocked
         ? selectedBenefits.reduce((sum, id) => {
             const benefit = COMMUNITY_BENEFITS.find(b => b.id === id);
-            return sum + (benefit ? benefit.cost : 0);
+            return (
+              sum +
+              (benefit
+                ? benefitCostUsd(benefit.id, {
+                    mineSizeKm2: selectedSize.value,
+                    capacityTPerYr: selectedCapacity.value,
+                  })
+                : 0)
+            );
           }, 0)
         : 0,
-    [scenarioLocked, selectedBenefits]
+    [scenarioLocked, selectedBenefits, selectedSize.value, selectedCapacity.value]
   );
 
   const industrialScenario = useMemo(
@@ -352,7 +360,11 @@ export function useMitigationBudgetV2({
         return;
       }
     }
-    if (unassignedBudget >= benefit.cost) {
+    const priceUsd = benefitCostUsd(benefit.id, {
+      mineSizeKm2: selectedSize.value,
+      capacityTPerYr: selectedCapacity.value,
+    });
+    if (unassignedBudget >= priceUsd) {
       onToggleBenefit(id);
     } else {
       alert(

@@ -10,7 +10,7 @@ import { DraggableRegionalMap } from '../map/DraggableRegionalMap';
 import type { BenefitPlacement } from '../map/DraggableRegionalMap';
 import { BenefitUtilityCostChart, type LeverAllocations } from '../BenefitUtilityCostChart';
 import { JointDeveloperPanel } from './JointDeveloperPanel';
-import { getCommunityBenefit, type CommunityBenefitId, canoeAvailability } from '../../data/communityBenefits';
+import { benefitCostUsd, getCommunityBenefit, type CommunityBenefitId, canoeAvailability } from '../../data/communityBenefits';
 import {
   getMaxNoBuildZonesForMineSizeKm2,
   canToggleNoBuildZone,
@@ -170,7 +170,13 @@ export const JointView: React.FC = () => {
             return;
           }
         }
-        if (unassignedBudget >= benefit.cost) {
+        const priceUsd = benefitCostUsd(
+          benefit.id,
+          selectedSize && selectedCapacity
+            ? { mineSizeKm2: selectedSize.value, capacityTPerYr: selectedCapacity.value }
+            : null,
+        );
+        if (unassignedBudget >= priceUsd) {
           setSelectedBenefits(prev => [...prev, id]);
         } else {
           alert(
@@ -198,7 +204,13 @@ export const JointView: React.FC = () => {
             return;
           }
         }
-        if (unassignedBudget < benefit.cost) {
+        const priceUsd = benefitCostUsd(
+          benefit.id,
+          selectedSize && selectedCapacity
+            ? { mineSizeKm2: selectedSize.value, capacityTPerYr: selectedCapacity.value }
+            : null,
+        );
+        if (unassignedBudget < priceUsd) {
           alert(
             'Not enough unassigned budget. Reduce water or waste spend, or unlock scenario to change mine/capacity/facility.'
           );

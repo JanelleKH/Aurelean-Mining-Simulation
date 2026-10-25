@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import type { SelectableNoBuildId } from '../../data/noBuildAreas';
 import { getNoBuildAreaLabel } from '../../data/noBuildAreas';
 import {
+  benefitCostUsd,
   COMMUNITY_BENEFITS,
   type CommunityBenefitId,
 } from '../../data/communityBenefits';
@@ -307,7 +308,16 @@ export const DraggableRegionalMap: React.FC<DraggableRegionalMapProps> = ({
     const benefit = COMMUNITY_BENEFITS.find(b => b.id === id);
     if (!benefit) return false;
     if (selectedBenefits.includes(id)) return true;
-    return unassignedBudget >= benefit.cost;
+    const priceUsd = benefitCostUsd(
+      benefit.id,
+      industrialScenario
+        ? {
+            mineSizeKm2: industrialScenario.mineSizeKm2,
+            capacityTPerYr: industrialScenario.capacityMton,
+          }
+        : null,
+    );
+    return unassignedBudget >= priceUsd;
   };
 
   const placedBenefitCount = Object.keys(benefitPlacements).length;

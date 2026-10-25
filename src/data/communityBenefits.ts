@@ -33,7 +33,14 @@ export const COMMUNITY_BENEFITS: CommunityBenefit[] = [
    * liability of leaving voids open beneath a historic town. None of that is
    * charged here, which is exactly how such obligations behave in the world.
    */
-  { id: 'canoe', label: 'Underground Canoe System', cost: 900000, deferredLiability: true },
+  /**
+   * BASELINE ONLY. The canoe's charged price scales with mine size — see
+   * benefitCostUsd() below — because what the benefit buys is access works
+   * along however much gallery has to be made safe and lit. This figure is the
+   * price at the smallest size where the benefit can be delivered at all, and
+   * it is what a caller gets if it asks for a price without a scenario.
+   */
+  { id: 'canoe', label: 'Underground Canoe System', cost: 425000, deferredLiability: true },
   { id: 'energy', label: 'Energy Storage Research Program', cost: 3000000 },
   { id: 'research', label: 'Advanced Manufacturing Workforce Training', cost: 5000000 },
 ];
@@ -96,4 +103,44 @@ export function canoeAvailability(input: {
     };
   }
   return { deliverable: true, reason: null };
+}
+
+/** Rounding for prices shown to participants: nearest $25,000. */
+const roundPrice = (usd: number) => Math.round(usd / 25_000) * 25_000;
+
+/**
+ * What a benefit costs at this scenario, in dollars charged once.
+ *
+ * Every benefit but one is a flat price. The canoe is not: the galleries are
+ * driven as part of mining anyway, and what the benefit buys is the access
+ * works — portal, landing, lighting, handrail — along however much gallery is
+ * navigable. More mine means more gallery means more to make safe.
+ *
+ * The scaling range is small, because above 4 km2 the canoe cannot be bought
+ * at any price (see canoeAvailability). So it runs about $0.43M at 1 km2 to
+ * $0.95M at 4 km2 and stops. It stays the cheapest or second cheapest benefit
+ * everywhere it can be promised, which is the point of it.
+ *
+ * Call this rather than reading `.cost` wherever money changes hands.
+ */
+export function benefitCostUsd(
+  id: string,
+  scenario?: { mineSizeKm2: number; capacityTPerYr: number } | null,
+): number {
+  const benefit = COMMUNITY_BENEFITS.find(b => b.id === id);
+  if (!benefit) return 0;
+  if (id !== 'canoe' || !scenario) return benefit.cost;
+
+  const water = computeWaterLedger({
+    mineSizeKm2: scenario.mineSizeKm2,
+    capacityTPerYr: scenario.capacityTPerYr,
+    waterMitigationSpendUsd: 0,
+  });
+  const pc = computePostClosure({
+    mineSizeKm2: scenario.mineSizeKm2,
+    capacityTPerYr: scenario.capacityTPerYr,
+    storageDepletedM3: water.balance.storageDepletedM3,
+    backfillFraction: 0,
+  });
+  return roundPrice(pc.canoeCost.capitalUsd);
 }

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { computeWaterLedger, computePostClosure } from '../model/index';
-import { COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { benefitCostUsd, COMMUNITY_BENEFITS } from '../data/communityBenefits';
 import { LedgerPanel } from './LedgerPanel';
 import {
   MINE_SIZES,
@@ -460,7 +460,11 @@ export const CommunityBenefitsSection: React.FC<{
       <div className="grid grid-cols-1 gap-1 mt-2">
         {COMMUNITY_BENEFITS.map(benefit => {
           const isSelected = selectedBenefits.includes(benefit.id);
-          const canAfford = active && b.unassignedBudget >= benefit.cost;
+          const priceUsd = benefitCostUsd(benefit.id, {
+            mineSizeKm2: b.selectedSize.value,
+            capacityTPerYr: b.selectedCapacity.value,
+          });
+          const canAfford = active && b.unassignedBudget >= priceUsd;
           return (
             <div
               key={benefit.id}
@@ -487,7 +491,7 @@ export const CommunityBenefitsSection: React.FC<{
                 </div>
                 <span className="font-medium">{benefit.label}</span>
               </div>
-              <span className="font-mono">{formatCurrency(benefit.cost)}</span>
+              <span className="font-mono">{formatCurrency(priceUsd)}</span>
             </div>
           );
         })}
@@ -527,7 +531,10 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
   // Hard-coding it meant the panel would keep quoting a figure the benefits list
   // no longer held — the same "two numbers that cannot both be true" fault as
   // the air cost units, in a third place.
-  const canoePriceUsd = COMMUNITY_BENEFITS.find(x => x.id === 'canoe')?.cost ?? 0;
+  const canoePriceUsd = benefitCostUsd('canoe', {
+    mineSizeKm2: b.selectedSize.value,
+    capacityTPerYr: b.selectedCapacity.value,
+  });
   const ratio = pc.canoeCost.recurringPvUsd / Math.max(1, canoePriceUsd);
   return (
     <div className="mt-2 text-[10px] text-amber-900 bg-amber-50 border border-amber-300 rounded p-2 leading-snug">
