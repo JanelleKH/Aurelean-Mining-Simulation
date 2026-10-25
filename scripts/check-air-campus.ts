@@ -26,7 +26,7 @@ const check = (name: string, cond: boolean, detail = '') => {
   if (!cond) failures++;
 };
 const usd = (n: number | null) =>
-  n === null ? 'UNREACHABLE at any spend' : '$' + (n / 1_000_000).toFixed(2) + 'M/yr';
+  n === null ? 'MUST MOVE (not reachable within budget)' : '$' + (n / 1_000_000).toFixed(2) + 'M';
 
 /* ================= CAMPUS ================= */
 console.log('\n=== UNIVERSITY CAMPUS AS A NO-GO ZONE ===\n');
@@ -99,7 +99,7 @@ const ledger = (
   computeAirLedger({
     sources,
     capacityTPerYr: 3_000_000,
-    airControlSpendUsdPerYr: spend,
+    airControlCapitalUsd: spend,
     disturbedHa: waste.footprint.totalDisturbedHa,
     mineLifeYr: life,
     ...over,
@@ -114,7 +114,7 @@ for (const [name, src] of cases) {
   const L = ledger(src);
   const t = L.receptors[0];
   console.log(`${name.padEnd(22)} nearest ${String(Math.round(t.nearestSourceM)).padStart(4)} m   PM10 ${t.pm10AnnualUgM3.toFixed(1).padStart(6)}   PM2.5 ${t.pm25AnnualUgM3.toFixed(1).padStart(6)}   ${L.permitting.compliant ? 'PERMITTABLE' : 'REFUSED'}`);
-  console.log(`${''.padEnd(22)} to EU limit ${usd(t.spendToMeetLimitUsdPerYr)}    to WHO guideline ${usd(t.spendToMeetGuidelineUsdPerYr)}`);
+  console.log(`${''.padEnd(22)} to EU limit ${usd(t.capitalToMeetLimitUsd)}    to WHO guideline ${usd(t.capitalToMeetGuidelineUsd)}`);
 }
 console.log('');
 
@@ -159,12 +159,62 @@ console.log('');
   check('concentration is monotone decreasing in control spend', mono);
 }
 
-// (f) Money must not buy past bad siting cheaply, or siting is not a decision.
+// (f) REVISED 24 October 2026, after this check failed.
+//
+//     It originally asserted that complying from the worst siting required
+//     relocation rather than spending. That is false, and the model was right
+//     to say so: coarse dust from haul roads is suppressed by watering, which
+//     is cheap and about 85% effective, and it is exactly why real mines
+//     operate close to towns. The legal limit IS purchasable from the worst
+//     siting, for roughly $2M of the $6M available.
+//
+//     What is not purchasable is health. At that siting PM2.5 sits near three
+//     times the WHO guideline and no affordable control reaches it, because
+//     the fine fraction comes from diesel and stacks rather than from the road
+//     surface that watering fixes. So the honest claim — and the better one —
+//     is that you can buy legality and you cannot buy health. The developer
+//     can lawfully stay close; only moving makes the air good.
 {
   const t = ledger(SOUTH).receptors[0];
-  const costly = t.spendToMeetLimitUsdPerYr === null || t.spendToMeetLimitUsdPerYr > 5_000_000;
-  check('complying from the worst siting is impossible or very expensive', costly,
-    usd(t.spendToMeetLimitUsdPerYr));
+  check('the legal limit is purchasable from the worst siting',
+    t.capitalToMeetLimitUsd !== null && t.capitalToMeetLimitUsd <= 6_000_000,
+    usd(t.capitalToMeetLimitUsd));
+  check('the health guideline is NOT purchasable from the worst siting',
+    t.capitalToMeetGuidelineUsd === null,
+    usd(t.capitalToMeetGuidelineUsd));
+  check('so the worst siting stays well above the health guideline',
+    t.pm25AnnualUgM3 > 2 * 5,
+    `PM2.5 ${t.pm25AnnualUgM3.toFixed(1)} ug/m3 against a guideline of 5`);
+}
+
+// (f2) UNITS. The figure quoted as the cost of compliance must be one the
+//      developer could actually allocate. Quoting $16M a year to someone whose
+//      cap is $6M once was the defect this replaces.
+{
+  const t = ledger(NORTH_BLOCKED).receptors[0];
+  const ok = t.capitalToMeetLimitUsd === null || t.capitalToMeetLimitUsd <= 6_000_000;
+  check('any quoted compliance cost is within what the budget allows', ok,
+    usd(t.capitalToMeetLimitUsd));
+}
+
+// (f3) UNITS. The lifetime obligation must be commensurable with the budget.
+//      At 4 km2 / 3 Mt the total budget is about $25M; the old reading gave
+//      $120M, which no developer could read as anything but a bug.
+{
+  const L = ledger(NORTH_BLOCKED, 6_000_000);
+  const TOTAL_BUDGET_AT_THIS_SCENARIO = 26_600_000;
+  check('lifetime air obligation is commensurable with the budget',
+    L.obligation.lifetimeUsd < TOTAL_BUDGET_AT_THIS_SCENARIO,
+    `capital $${(L.obligation.capitalUsd / 1e6).toFixed(1)}M + O&M $${(L.obligation.annualOmUsd / 1e6).toFixed(2)}M/yr x ${L.obligation.mineLifeYr.toFixed(0)} yr = $${(L.obligation.lifetimeUsd / 1e6).toFixed(0)}M, against a budget of ~$${(TOTAL_BUDGET_AT_THIS_SCENARIO / 1e6).toFixed(0)}M`);
+}
+
+// (f4) The budget cap must still buy most of the available control, or the
+//      slider range is mismatched to the curve and the top half does nothing.
+{
+  const L = ledger(SOUTH, 6_000_000);
+  check('the $6M cap buys most of the available control',
+    L.control.dustEffectiveness > 0.75 * 0.85,
+    `dust ${(L.control.dustEffectiveness * 100).toFixed(0)}% of a 85% ceiling`);
 }
 
 // (g) The farther receptor sees less.
@@ -203,9 +253,17 @@ console.log('');
 //     dearest one-off benefit ($5M research programme).
 {
   const L = ledger(NORTH_BLOCKED, 4_000_000);
-  check('the lifetime air obligation exceeds the most expensive single benefit',
+  check('the lifetime air obligation still exceeds the dearest single benefit',
     L.obligation.presentValueUsd > 5_000_000,
-    `$${(L.obligation.annualUsd / 1e6).toFixed(1)}M/yr x ${L.obligation.mineLifeYr.toFixed(0)} yr = $${(L.obligation.lifetimeUsd / 1e6).toFixed(0)}M, PV $${(L.obligation.presentValueUsd / 1e6).toFixed(0)}M`);
+    `capital $${(L.obligation.capitalUsd / 1e6).toFixed(1)}M + $${(L.obligation.annualOmUsd / 1e6).toFixed(2)}M/yr = $${(L.obligation.lifetimeUsd / 1e6).toFixed(0)}M, PV $${(L.obligation.presentValueUsd / 1e6).toFixed(0)}M`);
+}
+
+// Operating cost must be a share of capital, not a copy of it.
+{
+  const L = ledger(NORTH_BLOCKED, 6_000_000);
+  const ratio = L.obligation.annualOmUsd / L.obligation.capitalUsd;
+  check('annual running cost is a fraction of capital, not equal to it',
+    ratio > 0.05 && ratio < 0.3, `${(ratio * 100).toFixed(0)}% of capital per year`);
 }
 
 // (k) No cross-dimension total.

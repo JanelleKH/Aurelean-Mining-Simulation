@@ -415,8 +415,41 @@ export const FACILITY_SO2_G_PER_S: Record<string, number> = {
 export const DUST_CONTROL_MAX_EFFECTIVENESS = 0.85;
 export const STACK_CONTROL_MAX_EFFECTIVENESS = 0.95;
 
-/** Spend scale, USD/yr. Effectiveness approaches max as 1 - exp(-s/scale). */
+/**
+ * Capital scale, USD. Effectiveness approaches its maximum as
+ * 1 - exp(-capital / scale).
+ *
+ * CORRECTED 24 October 2026. This was read as an annual figure and the
+ * application's air allocation was fed into it directly — but that allocation
+ * is a one-off budget line capped at $6M, drawn from a total budget of roughly
+ * $20-35M. Treating it as a yearly cost made the panel report a lifetime
+ * obligation of $120M against a $25M budget, and quote compliance costs of
+ * $16M a year to a developer whose cap is $6M once. Two numbers on one screen
+ * that could not both be true.
+ *
+ * The correct reading is capital. Water trucks, sprays, enclosures, baghouses
+ * and scrubbers are equipment you buy; what recurs is operating them. So the
+ * budget line buys the kit, and the annual cost is derived from it below.
+ *
+ * At the $6M cap this reaches 0.91 of the available curve, so the existing
+ * slider range is already well matched and needs no rescaling.
+ */
 export const AIR_CONTROL_SPEND_SCALE_USD = 2_500_000;
+
+/** Ceiling on air-control capital in the application (AIR_SPEND_MAX_USD). */
+export const AIR_CONTROL_CAPITAL_MAX_USD = 6_000_000;
+
+/**
+ * Annual operating and maintenance cost of air-control equipment, as a share
+ * of its capital cost. Dust suppression and gas cleaning are conventionally
+ * 10-20% of capital a year: water, power, reagent, filter media, labour.
+ *
+ * This is what keeps the "rented, not bought" point alive without pretending
+ * the budget charges it. At the $6M cap it is about $0.9M a year, so roughly
+ * $24M over a twenty-year life — a figure commensurable with the budget and
+ * with a $5M community benefit, which $120M was not.
+ */
+export const AIR_OM_FRACTION_OF_CAPITAL = 0.15;
 
 /* ---- Meteorology and dispersion ------------------------------------ */
 

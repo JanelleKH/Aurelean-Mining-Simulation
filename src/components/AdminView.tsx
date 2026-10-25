@@ -331,7 +331,7 @@ function buildFeasibilityAnalysis(
     const airLedger = computeAirLedger({
       sources: airSources,
       capacityTPerYr: developerData.capacity_mton,
-      airControlSpendUsdPerYr: developerData.air_alloc,
+      airControlCapitalUsd: developerData.air_alloc,
       disturbedHa: wasteLedger.footprint.totalDisturbedHa,
       benefitIds: developerData.selectedBenefitIds,
       mineLifeYr: waterLedger.timing.mineLifeYr,
@@ -342,9 +342,9 @@ function buildFeasibilityAnalysis(
       envVerdict = 'fail';
       envDetails.push(
         `Air: REFUSED. ${airLedger.permitting.reason} EU limit values are binding, so this is not something a benefits package can offset. ` +
-          (town.spendToMeetLimitUsdPerYr === null
-            ? 'No level of control spending reaches the limit from this siting — the facilities have to move.'
-            : `Reaching the limit from here would cost about $${(town.spendToMeetLimitUsdPerYr / 1e6).toFixed(1)}M a year, which is almost certainly dearer than moving the operation.`)
+          (town.capitalToMeetLimitUsd === null
+            ? 'No affordable amount of control equipment reaches the limit from this siting. This is not a cost to be weighed — the facilities have to move.'
+            : `About $${(town.capitalToMeetLimitUsd / 1e6).toFixed(1)}M of control equipment would bring it inside the limit from here.`)
       );
     } else if (town.pm25Verdict !== 'within_guideline' || town.pm10Verdict !== 'within_guideline') {
       if (envVerdict === 'pass') envVerdict = 'warn';
@@ -358,7 +358,7 @@ function buildFeasibilityAnalysis(
     }
 
     envDetails.push(
-      `Air control is an operating cost: $${(airLedger.obligation.annualUsd / 1e6).toFixed(1)}M a year, $${(airLedger.obligation.lifetimeUsd / 1e6).toFixed(0)}M over ${airLedger.obligation.mineLifeYr.toFixed(0)} years. It buys nothing permanent — the dust returns the year the spending stops.`
+      `Air control: $${(airLedger.obligation.capitalUsd / 1e6).toFixed(1)}M of equipment from the budget, plus about $${(airLedger.obligation.annualOmUsd / 1e6).toFixed(1)}M a year to run it — $${(airLedger.obligation.lifetimeUsd / 1e6).toFixed(0)}M over ${airLedger.obligation.mineLifeYr.toFixed(0)} years. The budget charges the equipment; the running cost recurs for as long as the mine does, and the dust returns the year it stops.`
     );
   }
   }

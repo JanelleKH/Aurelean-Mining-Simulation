@@ -43,7 +43,9 @@
  */
 
 import {
+  AIR_CONTROL_CAPITAL_MAX_USD,
   AIR_CONTROL_SPEND_SCALE_USD,
+  AIR_OM_FRACTION_OF_CAPITAL,
   AIR_RECEPTORS,
   DIESEL_PM25_G_PER_T_MOVED,
   DUST_CONTROL_MAX_EFFECTIVENESS,
@@ -206,9 +208,14 @@ export function annualMeanAreaUgM3(
  * Control
  * ------------------------------------------------------------------ */
 
-export function controlEffectiveness(spendUsdPerYr: number, maxEffectiveness: number): number {
-  if (!(spendUsdPerYr > 0)) return 0;
-  return maxEffectiveness * (1 - Math.exp(-spendUsdPerYr / AIR_CONTROL_SPEND_SCALE_USD));
+export function controlEffectiveness(capitalUsd: number, maxEffectiveness: number): number {
+  if (!(capitalUsd > 0)) return 0;
+  return maxEffectiveness * (1 - Math.exp(-capitalUsd / AIR_CONTROL_SPEND_SCALE_USD));
+}
+
+/** Annual cost of running the control equipment the capital bought. */
+export function annualOmUsd(capitalUsd: number): number {
+  return Math.max(0, capitalUsd) * AIR_OM_FRACTION_OF_CAPITAL;
 }
 
 /* ------------------------------------------------------------------ *
@@ -231,20 +238,36 @@ export type ReceptorAir = {
   label: string;
   /** Distance to the nearest source, m — the one that dominates. */
   nearestSourceM: number;
+  /**
+   * Distance actually used in the dispersion model, m. Below MIN_PLUME_RANGE_M
+   * a Gaussian plume has no meaning, so it is floored — and the panel must show
+   * this rather than nearestSourceM, or it displays a number the model did not
+   * use. Rendering the app showed "nearest operation 15 m" beside a
+   * concentration computed at 100 m.
+   */
+  modelledRangeM: number;
+  /** True when a facility sits closer than the model can represent. */
+  withinPlumeFloor: boolean;
   pm10AnnualUgM3: number;
   pm25AnnualUgM3: number;
   pm10Verdict: AirVerdict;
   pm25Verdict: AirVerdict;
-  /** Annual control spend bringing BOTH pollutants inside the EU limit. */
-  spendToMeetLimitUsdPerYr: number | null;
-  /** Annual control spend reaching the WHO guideline for both. */
-  spendToMeetGuidelineUsdPerYr: number | null;
+  /**
+   * Control CAPITAL bringing both pollutants inside the EU limit, or null when
+   * no affordable amount does. null is the important case: it means the
+   * facilities have to move, which is the decision the model exists to force.
+   */
+  capitalToMeetLimitUsd: number | null;
+  /** Control capital reaching the WHO guideline for both, or null. */
+  capitalToMeetGuidelineUsd: number | null;
+  /** True when the limit is reachable only beyond what the budget allows. */
+  limitNeedsRelocation: boolean;
 };
 
 export type AirLedger = {
   inputs: {
     capacityTPerYr: number;
-    airControlSpendUsdPerYr: number;
+    airControlCapitalUsd: number;
     disturbedHa: number;
     electrified: boolean;
     sourceCount: number;
@@ -275,11 +298,19 @@ export type AirLedger = {
    * and it is what distinguishes air from every other dimension in the model:
    * a benefit is bought once, clean air is rented.
    */
+  /**
+   * Capital buys the kit; operating it recurs. Both are reported, because the
+   * budget charges only the first and the mine owes the second every year it
+   * runs. That gap is the honest version of "clean air is rented" — and it is
+   * reported in figures commensurable with the budget rather than five times
+   * larger than it.
+   */
   obligation: {
-    annualUsd: number;
+    capitalUsd: number;
+    annualOmUsd: number;
     mineLifeYr: number;
+    /** Capital plus operating cost over the life of the mine. */
     lifetimeUsd: number;
-    /** Present value at the stated rate, for comparison with one-off benefits. */
     presentValueUsd: number;
     discountRate: number;
   };
@@ -357,7 +388,7 @@ function buildSources(args: {
 export function computeAirLedger(input: {
   sources: AirSource[];
   capacityTPerYr: number;
-  airControlSpendUsdPerYr: number;
+  airControlCapitalUsd: number;
   /** Disturbed ground from the waste ledger, ha. Wind erosion scales with it. */
   disturbedHa: number;
   benefitIds?: readonly string[];
@@ -365,7 +396,7 @@ export function computeAirLedger(input: {
   discountRate?: number;
   receptors?: ReceptorRectPct[];
 }): AirLedger {
-  const { sources, capacityTPerYr, airControlSpendUsdPerYr, disturbedHa } = input;
+  const { sources, capacityTPerYr, airControlCapitalUsd, disturbedHa } = input;
   const benefits = input.benefitIds ?? [];
   const electrified = ELECTRIFICATION_REQUIRES.every(r => benefits.includes(r));
   const lifeYr = input.mineLifeYr ?? 0;
@@ -380,16 +411,47 @@ export function computeAirLedger(input: {
     sources, capacityTPerYr, disturbedHa,
     electrified: false, dustEffectiveness: 0, stackEffectiveness: 0,
   });
-  const dustPm25 = baseline.filter(s => s.kind === 'extraction').reduce((a, s) => a + s.pm25GPerS, 0);
-  const stackPm25 = baseline.filter(s => s.kind !== 'extraction').reduce((a, s) => a + s.pm25GPerS, 0);
-  const shareToDust = dustPm25 + stackPm25 > 0 ? dustPm25 / (dustPm25 + stackPm25) : 1;
+  // Apportioning the one allocation between dust kit and stack kit.
+  //
+  // CORRECTED: this was split by each stream's share of PM2.5, which starved
+  // dust control of the budget — stacks dominate fine particulate, so dust
+  // received about a tenth of the money while COARSE dust was the thing
+  // actually breaching the limit. The budget was buying the wrong equipment.
+  //
+  // It now spends against whichever pollutant sits closest to its limit at the
+  // most exposed receptor, which is what an engineer facing a permit refusal
+  // would do. Computed at the receptor rather than at the stack, so elevated
+  // releases are weighted by what actually reaches the ground.
+  const worstRect = receptorDefs.reduce((worst, rect) => {
+    const here = Math.max(
+      concentrationFrom(baseline, rect, 'pm10') / EU_LIMIT_PM10_ANNUAL_UG_M3,
+      concentrationFrom(baseline, rect, 'pm25') / EU_LIMIT_PM25_ANNUAL_UG_M3,
+    );
+    const best = Math.max(
+      concentrationFrom(baseline, worst, 'pm10') / EU_LIMIT_PM10_ANNUAL_UG_M3,
+      concentrationFrom(baseline, worst, 'pm25') / EU_LIMIT_PM25_ANNUAL_UG_M3,
+    );
+    return here > best ? rect : worst;
+  }, receptorDefs[0]);
+
+  const dustSet = baseline.filter(s => s.kind === 'extraction');
+  const stackSet = baseline.filter(s => s.kind !== 'extraction');
+  const pm10Ratio = concentrationFrom(baseline, worstRect, 'pm10') / EU_LIMIT_PM10_ANNUAL_UG_M3;
+  const pm25Ratio = concentrationFrom(baseline, worstRect, 'pm25') / EU_LIMIT_PM25_ANNUAL_UG_M3;
+  const binding: 'pm10' | 'pm25' = pm10Ratio >= pm25Ratio ? 'pm10' : 'pm25';
+  const dustAtReceptor = concentrationFrom(dustSet, worstRect, binding);
+  const stackAtReceptor = concentrationFrom(stackSet, worstRect, binding);
+  const shareToDust =
+    dustAtReceptor + stackAtReceptor > 0
+      ? dustAtReceptor / (dustAtReceptor + stackAtReceptor)
+      : 1;
 
   const effAt = (spend: number) => ({
     dust: controlEffectiveness(spend * shareToDust, DUST_CONTROL_MAX_EFFECTIVENESS),
     stack: controlEffectiveness(spend * (1 - shareToDust), STACK_CONTROL_MAX_EFFECTIVENESS),
   });
 
-  const e = effAt(airControlSpendUsdPerYr);
+  const e = effAt(airControlCapitalUsd);
   const built = buildSources({
     sources, capacityTPerYr, disturbedHa, electrified,
     dustEffectiveness: e.dust, stackEffectiveness: e.stack,
@@ -415,7 +477,7 @@ export function computeAirLedger(input: {
   };
 
   const receptors: ReceptorAir[] = receptorDefs.map(rect => {
-    const now = concentrationsAt(airControlSpendUsdPerYr, rect);
+    const now = concentrationsAt(airControlCapitalUsd, rect);
     const nearest = sources.length
       ? Math.min(...sources.map(s => distanceToReceptorM(s.xPct, s.yPct, rect)))
       : Number.POSITIVE_INFINITY;
@@ -425,20 +487,25 @@ export function computeAirLedger(input: {
       return c.pm10 <= target.pm10 && c.pm25 <= target.pm25;
     };
 
+    const limitCapital = solveCapital(
+      meets({ pm10: EU_LIMIT_PM10_ANNUAL_UG_M3, pm25: EU_LIMIT_PM25_ANNUAL_UG_M3 }),
+    );
+
     return {
       id: rect.id,
       label: rect.label,
       nearestSourceM: nearest,
+      modelledRangeM: Math.max(MIN_PLUME_RANGE_M, nearest),
+      withinPlumeFloor: nearest < MIN_PLUME_RANGE_M,
       pm10AnnualUgM3: now.pm10,
       pm25AnnualUgM3: now.pm25,
       pm10Verdict: verdict(now.pm10, WHO_GUIDELINE_PM10_ANNUAL_UG_M3, EU_LIMIT_PM10_ANNUAL_UG_M3),
       pm25Verdict: verdict(now.pm25, WHO_GUIDELINE_PM25_ANNUAL_UG_M3, EU_LIMIT_PM25_ANNUAL_UG_M3),
-      spendToMeetLimitUsdPerYr: solveSpend(
-        meets({ pm10: EU_LIMIT_PM10_ANNUAL_UG_M3, pm25: EU_LIMIT_PM25_ANNUAL_UG_M3 }),
-      ),
-      spendToMeetGuidelineUsdPerYr: solveSpend(
+      capitalToMeetLimitUsd: limitCapital,
+      capitalToMeetGuidelineUsd: solveCapital(
         meets({ pm10: WHO_GUIDELINE_PM10_ANNUAL_UG_M3, pm25: WHO_GUIDELINE_PM25_ANNUAL_UG_M3 }),
       ),
+      limitNeedsRelocation: limitCapital === null,
     };
   });
 
@@ -462,15 +529,16 @@ export function computeAirLedger(input: {
   }
   const compliant = bindingReceptor === null;
 
-  const annualUsd = airControlSpendUsdPerYr;
+  const capitalUsd = airControlCapitalUsd;
+  const omUsd = annualOmUsd(capitalUsd);
   return {
     inputs: {
-      capacityTPerYr, airControlSpendUsdPerYr, disturbedHa, electrified,
+      capacityTPerYr, airControlCapitalUsd, disturbedHa, electrified,
       sourceCount: sources.length,
     },
     sources: built,
     control: {
-      spendUsdPerYr: airControlSpendUsdPerYr,
+      spendUsdPerYr: airControlCapitalUsd,
       shareToDust,
       dustEffectiveness: e.dust,
       stackEffectiveness: e.stack,
@@ -481,18 +549,44 @@ export function computeAirLedger(input: {
       bindingReceptor,
       bindingPollutant,
       exceedanceUgM3,
+      // Deliberately does NOT repeat "cannot be permitted as sited": the places
+      // that display this already say so, and rendering the panel showed the
+      // sentence twice inside the same red box.
       reason: compliant
         ? null
-        : `${bindingPollutant} at the ${bindingReceptor} exceeds the EU annual limit value by ${exceedanceUgM3.toFixed(1)} ug/m3. The mine cannot be permitted as sited.`,
+        : `${bindingPollutant} at the ${bindingReceptor} is ${exceedanceUgM3.toFixed(1)} ug/m3 over the EU annual limit value.`,
     },
     obligation: {
-      annualUsd,
+      capitalUsd,
+      annualOmUsd: omUsd,
       mineLifeYr: lifeYr,
-      lifetimeUsd: annualUsd * lifeYr,
-      presentValueUsd: presentValueOfAnnuity(annualUsd, discountRate, lifeYr),
+      lifetimeUsd: capitalUsd + omUsd * lifeYr,
+      presentValueUsd: capitalUsd + presentValueOfAnnuity(omUsd, discountRate, lifeYr),
       discountRate,
     },
   };
+}
+
+/** Annual-mean concentration at a receptor from a set of built sources. */
+function concentrationFrom(
+  set: SourceEmission[],
+  rect: ReceptorRectPct,
+  pollutant: 'pm10' | 'pm25',
+): number {
+  let total = 0;
+  for (const s of set) {
+    const d = distanceToReceptorM(s.xPct, s.yPct, rect);
+    const h = RELEASE_HEIGHT_M[s.kind] ?? 0;
+    total += annualMeanConcentrationUgM3(
+      pollutant === 'pm10' ? s.pm10GPerS : s.pm25GPerS,
+      d,
+      h,
+    );
+    if (pollutant === 'pm10') {
+      total += annualMeanAreaUgM3(s.areaPm10GPerS, d, 0);
+    }
+  }
+  return total;
 }
 
 function verdict(value: number, guideline: number, limit: number): AirVerdict {
@@ -507,9 +601,14 @@ function verdict(value: number, guideline: number, limit: number): AirVerdict {
  * to the houses that the control ceiling cannot close the gap, and is the point
  * at which the developer must move rather than pay.
  */
-function solveSpend(satisfiedAt: (spendUsdPerYr: number) => boolean): number | null {
+function solveCapital(satisfiedAt: (capitalUsd: number) => boolean): number | null {
   if (satisfiedAt(0)) return 0;
-  const ceiling = 200_000_000;
+  // Capped at what the application actually allows a developer to allocate.
+  // Returning null for anything beyond it is the point: a figure larger than
+  // the budget is not an option, it is a instruction to move the facilities,
+  // and quoting an unaffordable number as though it were a choice was the
+  // error this replaces.
+  const ceiling = AIR_CONTROL_CAPITAL_MAX_USD;
   if (!satisfiedAt(ceiling)) return null;
   let lo = 0;
   let hi = ceiling;

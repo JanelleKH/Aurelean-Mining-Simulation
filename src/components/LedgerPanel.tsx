@@ -52,7 +52,8 @@ export interface LedgerPanelProps {
   waterMitigationSpendUsd: number;
   /** Air depends on WHERE the facilities are, so the panel needs the placements. */
   placedIndustrial?: readonly PlacedIndustrialSymbol[];
-  airControlSpendUsdPerYr?: number;
+  /** The one-off air allocation from the budget. Capital, not an annual cost. */
+  airControlCapitalUsd?: number;
   /**
    * Benefits secured, for the haul-fleet electrification pair. Normally absent
    * on this screen, because benefits are chosen after mitigation — the panel
@@ -66,7 +67,7 @@ export function LedgerPanel({
   capacityTPerYr,
   waterMitigationSpendUsd,
   placedIndustrial,
-  airControlSpendUsdPerYr = 0,
+  airControlCapitalUsd = 0,
   benefitIds,
 }: LedgerPanelProps) {
   const [backfillPct, setBackfillPct] = useState(0);
@@ -90,7 +91,7 @@ export function LedgerPanel({
     ? computeAirLedger({
         sources: airSources,
         capacityTPerYr,
-        airControlSpendUsdPerYr,
+        airControlCapitalUsd,
         disturbedHa: waste.footprint.totalDisturbedHa,
         benefitIds,
         mineLifeYr: water.timing.mineLifeYr,
@@ -271,6 +272,13 @@ export function LedgerPanel({
                     <span className="font-normal text-gray-500">
                       {' '}
                       — nearest operation {fmt(r.nearestSourceM)} m
+                      {r.withinPlumeFloor && (
+                        <span className="text-amber-700">
+                          {' '}
+                          (closer than the model can represent; computed at{' '}
+                          {fmt(r.modelledRangeM)} m)
+                        </span>
+                      )}
                     </span>
                   </div>
                   <Row label="Coarse particulate (PM10)">
@@ -292,9 +300,16 @@ export function LedgerPanel({
                   </Row>
                   {r.pm25Verdict !== 'within_guideline' && (
                     <Row label="To reach the health guideline">
-                      {r.spendToMeetGuidelineUsdPerYr === null
-                        ? 'Not reachable at any spend from here.'
-                        : `${usd(r.spendToMeetGuidelineUsdPerYr)} a year`}
+                      {r.capitalToMeetGuidelineUsd === null
+                        ? 'Not reachable within the control budget from here — only by moving.'
+                        : `${usd(r.capitalToMeetGuidelineUsd)} of control equipment`}
+                    </Row>
+                  )}
+                  {r.limitNeedsRelocation && (
+                    <Row label="To reach the legal limit">
+                      <span className="text-red-700 font-semibold">
+                        Not possible from here at any affordable spend. The facilities have to move.
+                      </span>
                     </Row>
                   )}
                 </dl>
@@ -309,7 +324,13 @@ export function LedgerPanel({
             </p>
 
             <dl className="text-sm space-y-1 mt-3 pt-3 border-t border-gray-200">
-              <Row label="Air control, per year">{usd(air.obligation.annualUsd)}</Row>
+              <Row label="Control equipment (from your budget)">
+                {usd(air.obligation.capitalUsd)}
+              </Row>
+              <Row label="Running it, per year">
+                {usd(air.obligation.annualOmUsd)}{' '}
+                <span className="text-gray-500 text-xs">(not charged to the budget)</span>
+              </Row>
               <Row label="Over the life of the mine">
                 {usd(air.obligation.lifetimeUsd)}{' '}
                 <span className="text-gray-500 text-xs">
@@ -326,8 +347,9 @@ export function LedgerPanel({
               </Row>
             </dl>
             <p className="mt-2 text-xs text-gray-600">
-              Air control is rented, not bought: it is an operating cost and the dust returns the
-              year the spending stops. Workforce training and the energy storage research programme,
+              The budget buys the equipment; running it recurs every year, and the dust returns the
+              year that stops. Only the first figure is charged against your budget today — the
+              annual cost is shown so the commitment is visible, not hidden. Workforce training and the energy storage research programme,
               together and only together, electrify the haul fleet — which removes diesel exhaust and
               does nothing for the dust raised by the wheels.
             </p>
@@ -337,7 +359,7 @@ export function LedgerPanel({
 
       <div className="bg-gray-50 border-t border-gray-300 px-4 py-2 text-xs text-gray-600">
         Waste follows the tonnage mined, not the licence area, and the footprint is derived from the
-        tonnage. Air is not yet rebuilt and is still reported as an index elsewhere in the app.
+        tonnage. Air is reported above, in micrograms per cubic metre at the places people actually are, and it responds to where the facilities sit rather than only to what is spent.
       </div>
     </div>
   );

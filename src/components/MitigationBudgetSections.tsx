@@ -412,7 +412,7 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         capacityTPerYr={b.selectedCapacity.value}
         waterMitigationSpendUsd={b.allocWater}
         placedIndustrial={b.placedIndustrial}
-        airControlSpendUsdPerYr={b.allocAir}
+        airControlCapitalUsd={b.allocAir}
       />
     </div>
   );
