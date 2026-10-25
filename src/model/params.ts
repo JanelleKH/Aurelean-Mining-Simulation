@@ -301,6 +301,60 @@ export const GALLERY_M_PER_T_ORE = 0.0008;
 /** Minimum navigable length for the canoe benefit to be deliverable, m. */
 export const CANOE_MIN_NAVIGABLE_LENGTH_M = 800;
 
+/* ------------------------------------------------------------------ *
+ * The canoe's water, added 24 October 2026
+ *
+ * The benefit needs three things at once, and the model now says so:
+ * the mine must be CLOSED, the galleries must FLOOD, and the water
+ * must be HELD there without being taken from somewhere that cannot
+ * spare it.
+ *
+ * The ordering matters and it is the physically correct one. The
+ * galleries are the lowest void in the system, so when pumping stops
+ * water returns to them first and fast — months, not decades. The
+ * cistern sits far higher, in the regional water table, and recovers
+ * only as the whole depleted system refills, which takes decades or
+ * never happens at all. So a community can get its canoe and still
+ * have lost its cistern. The mineshaft can be flooded; the city and
+ * the cistern cannot.
+ * ------------------------------------------------------------------ */
+
+/** Driven cross-section of a gallery, m2. A 4 m by 4 m heading. */
+export const GALLERY_CROSS_SECTION_M2 = 16;
+
+/**
+ * Share of recharge that flows toward the depressed workings once
+ * pumping stops. Water runs downhill: the cone of depression is the
+ * low point, so it takes a large share of recharge until it fills.
+ */
+export const RECHARGE_FRACTION_TO_WORKINGS = 0.3;
+
+/**
+ * Volumes of water per year that must pass through the flooded
+ * galleries to keep them fit to float visitors on — turnover against
+ * stagnation, iron and sulphate. Two exchanges a year is modest for a
+ * visitor attraction.
+ */
+export const CANOE_WATER_TURNOVER_PER_YR = 2;
+
+/**
+ * The horizon over which the aquifer is expected to make good the
+ * storage the mine removed, years.
+ *
+ * This is the number that decides whether there is any water to spare.
+ * Recharge is 3 Mm3/yr. Servicing the deficit over 50 years leaves a
+ * surplus at every mine size except the largest: at 8 km2 the deficit
+ * is 230 Mm3, which needs 4.6 Mm3/yr — more than the aquifer receives.
+ * There is then nothing left to reserve, and the canoe cannot be held
+ * even though the galleries would flood.
+ *
+ * DESIGN PARAMETER, and the one that places the threshold. At 50 years
+ * the canoe is viable from 1 to 4 km2 and fails at 8. Shortening it
+ * brings the failure forward to 4 km2; lengthening it lets 8 km2
+ * through.
+ */
+export const AQUIFER_RECOVERY_HORIZON_YR = 50;
+
 /* ================================================================== *
  * AIR
  *

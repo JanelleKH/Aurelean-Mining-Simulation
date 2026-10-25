@@ -518,12 +518,34 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
   const pc = computePostClosure({
     mineSizeKm2: b.selectedSize.value,
     capacityTPerYr: b.selectedCapacity.value,
-    drawdownAtWorkingsM: water.drawdownAtWorkingsM,
+    // The deficit decides whether the aquifer can spare the water to hold the
+    // galleries flooded. Without it the gate never fires.
+    storageDepletedM3: water.balance.storageDepletedM3,
     backfillFraction: 0,
   });
   const ratio = pc.canoeCost.recurringPvUsd / Math.max(1, 900_000);
   return (
     <div className="mt-2 text-[10px] text-amber-900 bg-amber-50 border border-amber-300 rounded p-2 leading-snug">
+      {pc.canoeVerdict === 'not_enough_water' ? (
+        <>
+          <span className="font-bold text-red-800">
+            At this mine size the canoe cannot be delivered.
+          </span>{' '}
+          The galleries would flood within{' '}
+          {pc.yearsToNavigableAfterClosure < 1
+            ? 'months'
+            : `${pc.yearsToNavigableAfterClosure.toFixed(0)} years`}{' '}
+          of closure — they are the lowest point in the system, so the water returns there first.
+          But holding them takes{' '}
+          {(pc.water.reservationM3PerYr / 1000).toFixed(0)}k m³ a year of throughflow, and the
+          aquifer has none to spare: it owes{' '}
+          {(pc.water.recoveryCallM3PerYr / 1e6).toFixed(1)}M m³ a year against the{' '}
+          {(pc.water.rechargeM3PerYr / 1e6).toFixed(1)}M m³ it receives, just to make good what this
+          mine took. Reserve water for the canoe and it comes out of the recovery. A smaller mine
+          leaves enough; this one does not. Created by the harm and destroyed by too much of it.
+        </>
+      ) : (
+        <>
       <span className="font-bold">
         The canoe costs {formatCurrency(900_000)} to build and{' '}
         {formatCurrency(pc.canoeCost.annualRecurringUsd)} a year to keep.
@@ -533,7 +555,16 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
       budget. The galleries cannot open until the mine closes and the water table rebounds, about{' '}
       {pc.yearsToNavigableAfterClosure.toFixed(0)} years after that. Keeping them open also means
       not backfilling them, and it is the backfill that protects the Old Town and the cistern from
-      subsidence. Whoever is here in {pc.mineLifeYr.toFixed(0)} years inherits this.
+      subsidence. The galleries flood within{' '}
+      {pc.yearsToNavigableAfterClosure < 1
+        ? 'months'
+        : `${pc.yearsToNavigableAfterClosure.toFixed(0)} years`}{' '}
+      of closure, but the cistern sits far higher in the water table and needs{' '}
+      {pc.water.regionalRecoveryYr.toFixed(0)} years of recharge to come back — so this community
+      can have its canoe and still have lost its cistern. Whoever is here in{' '}
+      {pc.mineLifeYr.toFixed(0)} years inherits all of it.
+        </>
+      )}
     </div>
   );
 };

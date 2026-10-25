@@ -7,6 +7,9 @@
  */
 
 import {
+  MINE_SIZES_KM2,
+} from '../src/model/index.ts';
+import {
   AIR_BUDGET_MULTIPLIER,
   airAssuranceUsd,
   computeTotalBudget,
@@ -342,7 +345,7 @@ console.log('\n=== THE CANOE: CHEAP TO PROMISE, EXPENSIVE TO KEEP ===\n');
   const L = computeWaterLedger({ mineSizeKm2: 4, capacityTPerYr: 3_000_000, waterMitigationSpendUsd: 300_000 });
   const pc = computePostClosure({
     mineSizeKm2: 4, capacityTPerYr: 3_000_000,
-    drawdownAtWorkingsM: L.drawdownAtWorkingsM, backfillFraction: 0,
+    storageDepletedM3: L.balance.storageDepletedM3, backfillFraction: 0,
   });
   console.log(`capital charged      $${(canoe.cost / 1e6).toFixed(2)}M`);
   console.log(`annual upkeep        $${(pc.canoeCost.annualRecurringUsd / 1e6).toFixed(2)}M`);
@@ -363,12 +366,62 @@ console.log('\n=== THE CANOE: CHEAP TO PROMISE, EXPENSIVE TO KEEP ===\n');
   check('it is the only benefit so marked',
     COMMUNITY_BENEFITS.filter(x => x.deferredLiability).length === 1);
 
-  // (t) It cannot be delivered within the mine's life, which is what makes it
-  //     a promise rather than a payment.
-  check('the canoe cannot open until well after the mine closes',
-    pc.yearsToNavigableAfterClosure > 1,
-    `${pc.yearsToNavigableAfterClosure.toFixed(0)} years after closure`);
+  // (t) It opens WHEN THE MINE CLOSES. The galleries are the lowest void in
+  //     the system, so water returns to them first and fast. The long wait
+  //     belongs to the regional table and so to the cistern, not to this.
+  check('the galleries flood within a year of closure, not decades after',
+    pc.yearsToNavigableAfterClosure < 1,
+    `${(pc.yearsToNavigableAfterClosure * 12).toFixed(1)} months`);
+
+  // (u) And the cistern must take far longer, or the ordering that lets a
+  //     community keep its canoe and lose its cistern does not exist.
+  check('the regional table — and so the cistern — takes far longer',
+    pc.water.regionalRecoveryYr > 10 * pc.yearsToNavigableAfterClosure,
+    `galleries ${(pc.yearsToNavigableAfterClosure * 12).toFixed(0)} months vs regional ${pc.water.regionalRecoveryYr.toFixed(0)} years`);
 }
+
+/* ===== THE CANOE'S WATER: VIABLE ONLY BELOW THE LARGEST MINE ===== */
+console.log('\n=== CANOE VIABILITY BY MINE SIZE ===\n');
+console.log('size   navigable   gallery vol   reserve/yr   surplus/yr   verdict');
+const canoeAt = (km2: number) => {
+  const L = computeWaterLedger({ mineSizeKm2: km2, capacityTPerYr: 3_000_000, waterMitigationSpendUsd: 300_000 });
+  return computePostClosure({
+    mineSizeKm2: km2, capacityTPerYr: 3_000_000,
+    storageDepletedM3: L.balance.storageDepletedM3, backfillFraction: 0,
+  });
+};
+for (const km2 of MINE_SIZES_KM2) {
+  const pc = canoeAt(km2);
+  console.log(
+    `${km2.toFixed(1).padStart(4)}   ${pc.navigableLengthM.toFixed(0).padStart(9)}m   ` +
+    `${(pc.water.galleryVolumeM3 / 1000).toFixed(0).padStart(10)}k   ` +
+    `${(pc.water.reservationM3PerYr / 1000).toFixed(0).padStart(9)}k   ` +
+    `${(pc.water.surplusM3PerYr / 1e6).toFixed(2).padStart(9)}M   ${pc.canoeVerdict}`);
+}
+console.log('');
+
+// (v) THE THRESHOLD. Viable through 4 km2 and not at 8 — created by the harm,
+//     destroyed by too much of it. If 8 km2 passed, nothing in the model would
+//     stop the largest mine taking every benefit as well as every harm.
+check('the canoe is NOT deliverable at 8 km2, for want of water',
+  canoeAt(8).canoeVerdict === 'not_enough_water',
+  canoeAt(8).canoeVerdict);
+check('it IS deliverable at 4 km2', canoeAt(4).canoeVerdict === 'deliverable');
+check('and at 2 km2', canoeAt(2).canoeVerdict === 'deliverable');
+
+// (w) The small end must still fail for its own, different reason — too little
+//     gallery rather than too little water. Two ways to lose it, at opposite
+//     ends, is what makes it a band rather than a gradient.
+check('at 0.5 km2 it fails for want of gallery, not water',
+  canoeAt(0.5).canoeVerdict === 'too_short',
+  canoeAt(0.5).canoeVerdict);
+
+// (x) The failure at 8 km2 must be about water, not about length — the
+//     galleries are longest there, so length cannot be what stops it.
+check('the 8 km2 galleries are the longest yet still cannot be held',
+  canoeAt(8).navigableLengthM > canoeAt(4).navigableLengthM
+    && !canoeAt(8).water.canBeHeld,
+  `${canoeAt(8).navigableLengthM.toFixed(0)}m of gallery, surplus ${(canoeAt(8).water.surplusM3PerYr / 1e6).toFixed(2)}M m3/yr`);
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}\n`);
 process.exit(failures === 0 ? 0 : 1);

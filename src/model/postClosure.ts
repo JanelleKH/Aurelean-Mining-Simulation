@@ -26,15 +26,30 @@
  */
 
 import {
+  AQUIFER_RECHARGE_M3_PER_D,
+  AQUIFER_RECOVERY_HORIZON_YR,
   CANOE_MIN_NAVIGABLE_LENGTH_M,
+  CANOE_WATER_TURNOVER_PER_YR,
+  GALLERY_CROSS_SECTION_M2,
+  RECHARGE_FRACTION_TO_WORKINGS,
   GALLERY_FRACTION_AT_REBOUND_HORIZON,
   GALLERY_M_PER_T_ORE,
   ORE_DENSITY_T_PER_M3,
   ORE_T_PER_KM2,
 } from './params.ts';
-import { reboundYears } from './hydrology.ts';
 
-export type CanoeVerdict = 'deliverable' | 'too_short' | 'backfilled_away';
+export type CanoeVerdict =
+  | 'deliverable'
+  /** Too small a mine: not enough gallery at the rebound horizon to paddle. */
+  | 'too_short'
+  /** Voids filled to protect the Old Town, so there is nothing to paddle. */
+  | 'backfilled_away'
+  /**
+   * Too large a mine: the aquifer cannot spare the water to hold the galleries
+   * flooded while it is still making good what the mine took. Created by the
+   * harm, destroyed by too much of it.
+   */
+  | 'not_enough_water';
 
 export type PostClosureState = {
   /** Total ore in the licence area, tonnes. */
@@ -58,8 +73,39 @@ export type PostClosureState = {
    */
   subsidenceIndex: number;
 
-  /** Years after closure before the galleries are navigable. */
+  /**
+   * Years after closure before the galleries are navigable.
+   *
+   * Short, and that is the physics rather than a convenience. The galleries
+   * are the lowest void in the system, so when pumping stops the water returns
+   * to them first. Filling them is a question of their own volume against the
+   * share of recharge running downhill into the cone of depression — months,
+   * not decades.
+   */
   yearsToNavigableAfterClosure: number;
+
+  /** The water the canoe needs, and whether the aquifer can spare it. */
+  water: {
+    /** Volume of the navigable galleries, m3. */
+    galleryVolumeM3: number;
+    /** Annual throughflow needed to keep the water fit to float visitors on. */
+    reservationM3PerYr: number;
+    /** Annual recharge the aquifer receives. */
+    rechargeM3PerYr: number;
+    /** Annual recharge committed to making good the storage the mine took. */
+    recoveryCallM3PerYr: number;
+    /** What is left after that call, and so what can be reserved. */
+    surplusM3PerYr: number;
+    /** True when the surplus covers the reservation. */
+    canBeHeld: boolean;
+    /**
+     * Years for the REGIONAL water table — and so the cistern — to recover.
+     * Much longer than the galleries, because the cistern sits far higher in
+     * the system. This is the ordering that lets a community keep its canoe
+     * and lose its cistern.
+     */
+    regionalRecoveryYr: number;
+  };
   /** Navigable gallery length once rebound completes, m. */
   navigableLengthM: number;
   canoeVerdict: CanoeVerdict;
@@ -78,15 +124,25 @@ export type PostClosureState = {
 export function computePostClosure(input: {
   mineSizeKm2: number;
   capacityTPerYr: number;
-  /** Drawdown at the workings during operation, m, from the water ledger. */
-  drawdownAtWorkingsM: number;
+  /**
+   * Drawdown at the workings during operation, m.
+   * No longer used: the galleries fill from recharge by volume, not from the
+   * regional rebound. Kept optional so existing callers do not break.
+   */
+  drawdownAtWorkingsM?: number;
+  /**
+   * Storage the mine removed from the aquifer over its life, m3, from the
+   * water ledger's balance. This is what decides whether there is any water
+   * to spare for the canoe.
+   */
+  storageDepletedM3?: number;
   /** Share of voids backfilled, 0-1. The community's own internal argument. */
   backfillFraction: number;
   /** Horizon over which the recurring obligation is valued, years. */
   horizonYr?: number;
   discountRate?: number;
 }): PostClosureState {
-  const { mineSizeKm2, capacityTPerYr, drawdownAtWorkingsM } = input;
+  const { mineSizeKm2, capacityTPerYr } = input;
   const beta = clamp01(input.backfillFraction);
   const horizonYr = input.horizonYr ?? 50;
   const discountRate = input.discountRate ?? 0.03;
@@ -104,11 +160,32 @@ export function computePostClosure(input: {
 
   const navigableLengthM = galleryLengthM * GALLERY_FRACTION_AT_REBOUND_HORIZON * (1 - beta);
 
+  // --- the canoe's water -------------------------------------------------
+  const galleryVolumeM3 = navigableLengthM * GALLERY_CROSS_SECTION_M2;
+  const rechargeM3PerYr = AQUIFER_RECHARGE_M3_PER_D * 365;
+  const storageDepletedM3 = Math.max(0, input.storageDepletedM3 ?? 0);
+  // What the aquifer owes itself each year to make good the mine's draw.
+  const recoveryCallM3PerYr = storageDepletedM3 / AQUIFER_RECOVERY_HORIZON_YR;
+  const surplusM3PerYr = rechargeM3PerYr - recoveryCallM3PerYr;
+  const reservationM3PerYr = galleryVolumeM3 * CANOE_WATER_TURNOVER_PER_YR;
+  const canBeHeld = surplusM3PerYr >= reservationM3PerYr;
+  const regionalRecoveryYr = rechargeM3PerYr > 0 ? storageDepletedM3 / rechargeM3PerYr : 0;
+
+  // Filling the galleries themselves: they are the low point, so a large
+  // share of recharge runs into them until they are full.
+  const fillRateM3PerYr = rechargeM3PerYr * RECHARGE_FRACTION_TO_WORKINGS;
+  const yearsToFloodGalleries = fillRateM3PerYr > 0 ? galleryVolumeM3 / fillRateM3PerYr : 0;
+
+  // Order matters: a backfilled gallery cannot be paddled whatever the water
+  // does; a gallery too short is not a route; and only then does it matter
+  // whether the water can be held there.
   let canoeVerdict: CanoeVerdict;
   if (beta >= 0.9) {
     canoeVerdict = 'backfilled_away';
   } else if (navigableLengthM < CANOE_MIN_NAVIGABLE_LENGTH_M) {
     canoeVerdict = 'too_short';
+  } else if (!canBeHeld) {
+    canoeVerdict = 'not_enough_water';
   } else {
     canoeVerdict = 'deliverable';
   }
@@ -128,7 +205,16 @@ export function computePostClosure(input: {
     backfillFraction: beta,
     unfilledVoidM3,
     subsidenceIndex,
-    yearsToNavigableAfterClosure: reboundYears(drawdownAtWorkingsM),
+    yearsToNavigableAfterClosure: yearsToFloodGalleries,
+    water: {
+      galleryVolumeM3,
+      reservationM3PerYr,
+      rechargeM3PerYr,
+      recoveryCallM3PerYr,
+      surplusM3PerYr,
+      canBeHeld,
+      regionalRecoveryYr,
+    },
     navigableLengthM,
     canoeVerdict,
     canoeCost: { capitalUsd, annualRecurringUsd, recurringPvUsd, horizonYr, discountRate },
