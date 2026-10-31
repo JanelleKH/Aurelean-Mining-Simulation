@@ -22,16 +22,66 @@ Related detail:
 
 ---
 
-## 2. Community voting (mine size winner)
+## 2. Community voting
 
-Five stakeholder groups each score six options (8, 4, 2, 1, 0.5 km², Oppose) from 0–5.
+**Rewritten 31 October 2026.** Previously: five groups scored six options
+(8, 4, 2, 1, 0.5 km² and Oppose) 0–5, and the winner was `argmax(Σ scores)`.
+Two faults, both structural.
+
+*Opposition was scored as a size.* Whether to mine and how big to mine were
+added on one scale, so a group could score 4 km² a five and Oppose a five in
+the same breath and the tally took both.
+
+*A group's weight depended on how generously it scored.* An emphatic group
+putting a 5 on one size contributed five points; a hedging group spreading
+3, 2 and 1 contributed six. Two groups scoring 8 km² a five could beat three
+groups whose first choice was 1 km² and who had all scored 8 km² zero.
+
+### 2.1 Stage one — is there a mine at all?
+
+Each group answers **accept / refuse / no view**. With `G` groups,
+`majority = floor(G/2) + 1` (three of five).
 
 ```
-Tally[size] = Σ_group votes[group][size]
-Winner      = argmax(Tally)
+approved = accepts >= majority
+refused  = !approved && (rejects >= majority || abstains == 0)
+decided  = approved || refused
 ```
 
-If all tallies are 0, there is no winner.
+Abstaining counts toward **neither** side: silence is not consent. The question
+can therefore sit unsettled rather than being decided by whoever spoke. Stage
+two is locked until `approved`. A refusal exports `winnerId = 'oppose'`.
+
+### 2.2 Stage two — which size, by instant-runoff
+
+Each group scores the five real sizes 0–5. **The scores set the group's order,
+not its weight**, and a size scored 0 is *unacceptable* — never a transfer
+target.
+
+```
+order(group)   = sizes scored > 0, descending; ties break toward the smaller mine
+count(size, r) = number of groups whose best surviving size is `size`
+active(r)      = groups with any surviving acceptable size
+needed(r)      = floor(active(r)/2) + 1
+
+each round: if some size has count >= needed  -> winner
+            else eliminate the weakest surviving size and transfer
+```
+
+A group whose every acceptable size is eliminated becomes **exhausted** and
+leaves the count; `needed` is recomputed against the groups still active. The
+raw score sum is still displayed, labelled as *not* what decides the outcome,
+and the elimination rounds are shown so a facilitator can point at the transfer
+that decided it.
+
+Zeros are also counted and reported per size as refusals, because a zero adds
+nothing to a sum and was previously indistinguishable from an unfilled row.
+
+**No group holds a veto.** A size can win while groups call it unacceptable;
+those objections are material for the negotiation, not something the vote
+resolves.
+
+Implementation and 17 pre-registered checks: `src/data/communityVote.ts`.
 
 ### Winner → benefits & no-go limits
 
@@ -79,7 +129,20 @@ When the winning mine size changes, no-go selections reset if the new limit is l
 
 ### 3.3 Total mitigation budget
 
-Constants: `MITIGATION_SPEND_MIN = $300,000`, `MITIGATION_STEP = $2,000,000`, baseline water+waste floors = $600,000.
+Constants: `MITIGATION_SPEND_MIN_USD = $300,000`,
+`MITIGATION_STEP_USD = $2,000,000`, baseline water+waste floors = $600,000.
+
+**Split 31 October 2026.** `MITIGATION_STEP_USD` is the **budget tier** — what
+each step up in mine size or production rate adds, and what the ceilings are
+built from. It used to double as the slider's step, so the only reachable water
+allocations were $0.3M, $2.3M, $4.3M… and a drag to $1M snapped back to $0.3M.
+Slider granularity is now `MITIGATION_SLIDER_STEP_USD = $250,000`, which
+divides the tier exactly so every tier-aligned figure stays reachable. **No
+budget figure changed** — verified against a full 5×4×4 table.
+
+The **air** slider deliberately keeps the $2M step: control equipment is bought
+in packages, and `clampAirSpend` snaps to those tiers whatever the slider
+offers.
 
 ```
 scenarioSteps = (mineIdx + capacityIdx) × $2,000,000
@@ -141,13 +204,25 @@ Community benefits can only be added when `unassignedBudget ≥ benefit.cost`. S
 
 ### 4.1 Base coefficients
 
+**IDs renamed 31 October 2026.** `research` → `workforce` and `energy` →
+`energy_storage`. The old names were actively misleading — the workforce
+training benefit was called `research` and the energy storage benefit was
+called `energy` — and that is what caused `ELECTRIFICATION_REQUIRES` to be
+written as `['workforce', 'research']`, naming a benefit that did not exist, so
+the haul fleet could not be electrified for the whole beta. `LEGACY_BENEFIT_IDS`
+maps the old names on import.
+
 | Benefit ID | Label (short) | Base utility u | Cost (USD) |
 |------------|---------------|----------------|------------|
-| research | Advanced Manufacturing Workforce Training | 0.33 | 5,000,000 |
-| energy | Energy Storage Research Program | 0.27 | 3,000,000 |
-| canoe | Underground Canoe System | 0.20 | 2,500,000 |
+| workforce | Advanced Manufacturing Workforce Training | 0.33 | 5,000,000 |
+| energy_storage | Energy Storage Research Program | 0.27 | 3,000,000 |
+| canoe | Underground Canoe System | 0.20 | 425,000 at 1 km², scaling with size |
 | irrigation | Irrigation upgrade | 0.13 | 900,000 |
 | park | Park / forestry | 0.07 | 700,000 |
+
+The canoe's chart cost is a fixed convention; its **charged** price scales with
+mine size (`benefitCostUsd`), and it cannot be delivered at all at 0.5 km² or
+8 km² — see `canoeAvailability`.
 
 Base utilities sum to **1.00** when all five benefits are selected.
 
@@ -156,8 +231,21 @@ Base utilities sum to **1.00** when all five benefits are selected.
 | Benefit | Linked lever |
 |---------|--------------|
 | canoe, irrigation | Water |
-| energy, research | Waste |
+| energy_storage, workforce | Waste |
 | park | Air |
+
+### 4.2a What benefits do to the physical ledgers
+
+Mostly nothing, and the interface now says so. Two reach the model:
+
+- **workforce + energy_storage together, and only together**, electrify the
+  haul fleet: `ELECTRIFICATION_DIESEL_REMOVED_FRACTION = 0.9` of diesel
+  particulate removed, and **no** effect on the dust raised by the wheels. At
+  the Old Town this reads as roughly a 38% cut in PM2.5 against 6% in PM10.
+- **canoe** changes nothing, but is *gated* by the physical model: it needs a
+  navigable gallery and enough water held back after closure.
+
+The rest are real commitments with real costs that move no physical figure.
 
 ### 4.3 Lever weights (Joint view)
 
@@ -175,7 +263,19 @@ Utility(bundle) = Σ (baseUtility_i × w_lever(i))
 
 Empty bundle → Cost = $0, Utility = 0.
 
-The chart plots all **31 non-empty subsets** of the five benefits. Dot color ranks utility among those bundles (red = bottom 25%, orange = middle 50%, green = top 25%). A black ring marks the current selection.
+The chart plots all **31 non-empty subsets** of the five benefits.
+
+**Colour changed 31 October 2026.** It used to rank utility red / orange /
+green, which moralised (red said a cheap low-utility bundle was a *bad*
+bundle, in a model built to refuse an overall score), duplicated the y-axis,
+and failed contrast — the green measured 2.22:1 and the orange 2.73:1 against
+the panel where a mark needs 3:1, with red-against-green the worst pair for a
+colour-blind reader. The budget reference line was *also* green.
+
+Colour now carries affordability, which neither axis shows: one hue at two
+prominences, solid for bundles inside the developer's budget and faded for
+those above it. This does not depend on hue perception at all. The budget line
+is orange at 3.1:1. A black ring marks the current selection.
 
 ---
 
@@ -197,17 +297,57 @@ Rules apply on **Developer** and **Joint** maps in the **siting** phase after sc
 
 **Refining** (by capacity):
 
+**Revised 31 October 2026** (was 1 / 1 / 2 / 3). A refinery is a large fixed
+plant; one train serves a mine up to about 3 Mt/yr.
+
 | Capacity (Mton/yr) | Required refining sites |
 |--------------------|-------------------------|
-| 0.5 or 1.5 | 1 |
-| 3.0 | 2 |
-| 5.0 | 3 |
+| 0.5, 1.5 or 3.0 | 1 |
+| 5.0 | 2 |
 
-**Processing** (facility tier ≥ Processing): one site per refining site (1:1).
+**Processing** (facility tier ≥ Processing): exactly **1** site (**revised**;
+was one per refining train — a mine has a mill, not a mill per train).
 
 **Advanced manufacturing** (tier = Advanced Manufacturing): exactly **1** additional site.
 
-**Extraction proximity:** each extraction site must be within **1 km** of the ore body region (`ORE_BODY_REGION`). Invalid placements are rejected with an alert (no on-map shaded buffer).
+Maximum pins on the map: **7** at 8 km² / 5 Mt/yr / Advanced Manufacturing
+(3 + 2 + 1 + 1). Previously 10.
+
+Total emissions do **not** change with the count: the air model divides each
+kind's emission across however many sites of that kind exist, so fewer sites
+concentrate the same mass rather than reducing it.
+
+### 5.1a Location rules
+
+Three, where until 31 October 2026 there was only the first:
+
+1. **Extraction within 1 km of the ore body** (`ORE_BODY_REGION`). You cannot
+   mine ore you are not standing on.
+2. **Nothing but extraction on the ore body.** It was the one piece of ground
+   with no rule against building on it, and it is the piece the mine exists to
+   remove.
+3. **No two facilities within `MIN_FACILITY_SEPARATION_KM` = 0.5 km.** The
+   spread penalty rewards clustering with no floor, so the cheapest play was to
+   stack the whole chain on one pixel: no cost, every emission source at a
+   point, and no siting decision taken at all.
+
+The drag-to-move path excludes the pin being moved from its own separation
+check, or a facility collides with itself and cannot be nudged.
+
+Invalid placements are rejected with an alert naming the rule and the distance.
+
+### 5.1b Air shown at siting
+
+Since 31 October 2026 the siting step reports PM10 and PM2.5 at both receptors
+live — in a panel beneath the map and as badges over the receptors themselves —
+recomputed as pins move, uncontrolled (nothing has been spent yet).
+
+This is the counterweight to clustering, and it is deliberately **not** another
+penalty. The counter-force already existed and is physically real; it was
+simply invisible at the moment of decision, while the cost of spreading was
+immediate and in dollars. Measured at 4 km² / 3.0 Mt/yr, moving the plant off
+the ore body takes Old Town PM2.5 from 8.1 to 3.7 µg/m³ and changes the verdict
+from *lawful, not healthy* to *healthy*.
 
 ### 5.2 Map distance
 
@@ -269,11 +409,19 @@ Implemented in `src/data/mapOverlap.ts` (`findIndustrialNoBuildConflicts`).
 
 ## 7. Admin feasibility verdict
 
-After uploading **community_results.csv** and **mining_simulation_results.csv**, three sections are evaluated. Any **Fail** → **Not Feasible**; warnings only → **Suboptimal / Warning**; all pass → **Optimal**.
+After uploading **community_results.csv** and **mining_simulation_results.csv**,
+three sections are evaluated, then a closing read-out. Any **Fail** → **Not
+Feasible**; warnings only → **Suboptimal / Warning**; all pass → **Optimal**.
 
-### Section 1 — Mine size & no-go limits
+### Section 1 — Mine size
 
-Mine sizes are ordered: 8 → 4 → 2 → 1 → 0.5 km² → Oppose.
+**Opposition is no longer a size.** A community voting against a mine used to be
+scored as a five-step gap on the size ladder, which read as *"you wanted
+different sizes"* when what happened was a refusal. It is now its own failure,
+with the remedy stated plainly: no benefits package buys consent withheld in
+principle, and a smaller mine does not answer a vote about whether to mine.
+
+Otherwise, sizes are ordered 8 → 4 → 2 → 1 → 0.5 km² and
 
 ```
 sizeGap = |index(community winner) − index(developer size_km2)|
@@ -285,22 +433,63 @@ sizeGap = |index(community winner) − index(developer size_km2)|
 | 1–2 | Warning |
 | ≥ 3 | Fail |
 
-Also validates: zone count consistency, community max zones for winner, developer max zones for their mine size.
+**No-go zones are not judged here.** This section used to fail a plan whenever
+the community had designated more zones than the *developer's* chosen size
+allowed, which is backwards — a no-go zone is the community's veto and the
+developer choosing a larger mine cannot delete it. Counts are reported as
+context; the verdict lives with the overlap, in Section 3. The only failure this
+section raises about zones is a genuinely inconsistent community file.
 
 ### Section 2 — Environmental & community benefits
 
-**Conditional hard limits** (only when community selected the triggering benefits):
+**Rewritten in October 2026.** This section used to apply two hard-coded limits
+(`final_water ≤ 800,000 m³`, `final_waste ≤ 5,000,000 tons`) that had no source
+and — worse — were applied only when the community happened to request a
+related benefit, so the same physical plan passed or failed depending on what
+was asked for. Both are gone.
 
-```
-If canoe OR irrigation selected → require final_water ≤ 800,000 m³
-If park OR energy selected     → require final_waste ≤ 5,000,000 tons
-```
+It now reads the physical ledgers in `src/model` and asks what actually breaks:
 
-**Benefits funding:** every benefit in the community CSV must appear in developer `selected_benefits`. Any missing → Warning.
+- **Water balance** — pumping against natural recharge; above 1× the shortfall
+  comes out of storage.
+- **Old Cistern** and **agricultural wells** — drawdown against available
+  column, with the cost to avert each, or `null` where no spend reaches it.
+- **Waste and land** — tonnages, and whether disturbed ground fits the licence.
+- **Air** — PM10 and PM2.5 at the Old Town and campus against the EU limit
+  values (binding) and WHO guidelines (advisory). An exceedance of a limit value
+  is a **refusal**, not a warning: no benefits package offsets binding law.
+- **Benefits funding** — every benefit in the community CSV must appear in the
+  developer's package; each missing one is priced against the unassigned budget.
+
+> Until 31 October 2026 the air block was nested inside the `else` of the
+> footprint check, so **any plan exceeding the licence area skipped air
+> entirely** — the largest plans, which are the ones most likely to breach a
+> limit value, were skipping the only legally binding test in the model.
 
 ### Section 3 — Map siting
 
-Any industrial facility inside a community no-go zone → **Fail** (listed per facility and zone).
+Any industrial facility inside a community no-go zone → **Fail**, listed per
+facility with coordinates and the zone it overlaps.
+
+### The closing read-out — "Why it came out this way"
+
+Added 31 October 2026. The three section cards narrate, and a narration does not
+give you a threshold: testers could read all three and still not answer *why did
+we fail, and by how much*. Every fail and warn now also records four things:
+
+```
+Blocker {
+  kind:      'fail' | 'warn'
+  test:      what was tested, in the terms the model tests it in
+  measured:  what this plan does
+  threshold: what it had to do
+  remedy:    what would change it, or null where nothing would
+}
+```
+
+`remedy: null` is a real answer, not a gap: some harms are not purchasable, and
+the card says so rather than quoting a figure that would not work. Failures are
+listed before warnings.
 
 ---
 

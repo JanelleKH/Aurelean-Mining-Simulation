@@ -22,13 +22,22 @@ Utility is **not** the same as admin “feasibility” (water/waste limits, mine
 
 Each benefit has a fixed **base utility** (u) and **cost** (c). These are constants in the model.
 
+> **IDs renamed 31 October 2026.** `research` → `workforce`, `energy` →
+> `energy_storage`. The old names named the wrong thing: the workforce training
+> benefit was called `research` and the energy storage benefit was called
+> `energy`. `LEGACY_BENEFIT_IDS` maps the old names on import.
+
 | Benefit ID   | Label (short)              | Base utility (u) | Cost (USD)   |
 |-------------|----------------------------|------------------|--------------|
-| research    | Advanced Manufacturing Workforce Training | **0.33**         | $5,000,000   |
-| energy      | Energy Storage Research Program           | **0.27**         | $3,000,000   |
+| workforce   | Advanced Manufacturing Workforce Training | **0.33**         | $5,000,000   |
+| energy_storage | Energy Storage Research Program        | **0.27**         | $3,000,000   |
 | canoe       | Underground canoe          | **0.20**         | $2,500,000   |
 | irrigation  | Irrigation upgrade         | **0.13**         | $900,000     |
 | park        | Park / forestry            | **0.07**         | $700,000     |
+
+The canoe's figure here is the **chart's** convention. Its charged price scales
+with mine size (`benefitCostUsd`), and at 0.5 km² and 8 km² it cannot be
+delivered at any price — see `canoeAvailability`.
 
 **Notes:**
 
@@ -46,8 +55,8 @@ Each benefit is tied to one mitigation lever. Developer spending on that lever *
 |-----------|--------------|--------------------------------------------------|
 | canoe     | **Water**    | Water-dependent recreation / aquifer use         |
 | irrigation| **Water**    | Agricultural water systems                       |
-| energy    | **Waste**    | Land / waste-related industrial benefit          |
-| research  | **Waste**    | Tied to waste / land remediation research        |
+| energy_storage | **Waste** | Land / waste-related industrial benefit |
+| workforce | **Waste** | Tied to waste / land remediation research |
 | park      | **Air**      | Forestry / air-quality-related green space       |
 
 ---
@@ -170,7 +179,7 @@ Water-linked benefits dominate utility; park contributes little when air mitigat
 
 - **Description** under the chart title explains how utility and cost are computed.
 - **Hover any dot** for a 3–4 sentence tooltip: benefits included, per-benefit calculation, totals, percentile band, and whether it is the current selection.
-- **Dot colors** rank utility among all 31 bundles (red / orange / green); **black ring** = current team selection.
+- **Dot colour** shows **affordability**, not utility rank: solid = inside the developer's budget, faded = above it. **Black ring** = current team selection.
 
 ---
 
@@ -184,27 +193,39 @@ The scatter plot includes:
 | Optional empty point | 1 (cost 0, utility 0) |
 | X-axis | Community benefit cost ($0–$20M scale) |
 | Y-axis | Weighted utility (auto-scaled) |
-| Green dashed vertical line | Developer’s allocated community-benefits budget |
+| Orange dashed vertical line | Developer’s allocated community-benefits budget |
 | Black ring on a dot | Current selection (community CSV on Admin; funded benefits on Joint) |
 
 ---
 
-## 9. Dot colors (percentile ranking)
+## 9. Dot colour (affordability)
 
-Dot color is **visual only**; it does not change the utility number.
+Dot colour is **visual only**; it does not change the utility number.
 
-Among all **31 non-empty bundles**, utilities are ranked and colored:
+| Appearance | Meaning |
+|------------|---------|
+| Solid blue | The developer's budget covers this bundle |
+| Faded blue | This bundle costs more than the budget |
+| Gray | The empty bundle — no benefits selected |
+| Black ring | The current selection, whatever its colour |
 
-| Color  | Percentile band | Meaning |
-|--------|-----------------|--------|
-| Red    | Bottom **25%**  | Lower utility among possible bundles |
-| Orange | Middle **50%**  | Mid-range utility |
-| Green  | Top **25%**     | Higher utility among possible bundles |
-| Gray   | Empty bundle    | No benefits selected |
+**Changed 31 October 2026.** Colour used to rank utility red / orange / green.
+That was wrong three ways:
 
-**Current selection** is marked with a **black ring**, regardless of color.
+1. **It moralised.** Red said a cheap low-utility bundle was a *bad* bundle — a
+   verdict, in an instrument built specifically to refuse an overall score.
+2. **It was redundant.** Utility is already the y-axis, so colour repeated the
+   vertical position and said nothing new.
+3. **It failed contrast.** The green measured 2.22:1 and the orange 2.73:1
+   against the panel background, where a mark needs 3:1; and red-against-green
+   is the worst possible pair for a colour-blind reader. The budget reference
+   line was *also* green, which is why it was invisible among the green dots.
 
-Thresholds use the 25th and 75th percentile of bundle utilities for the current weight settings (so colors can shift when Joint mitigation sliders change).
+Colour now carries the one thing neither axis shows — whether the bundle fits
+the budget — as a single hue at two prominences, which does not depend on hue
+perception at all. The budget line is orange at 3.1:1.
+
+Utility rank survives as words in the hover tooltip, where a rank belongs.
 
 ---
 
@@ -236,7 +257,9 @@ Those are handled elsewhere (Admin negotiation logic, CSV checks, overlap map).
 
 ## 12. Brief explanation (for slides or verbal context)
 
-> **Utility** measures how valuable a *package* of community benefits is. Each benefit has a fixed base score (research highest at 0.33, park lowest at 0.07). Bundle utility is the sum of those scores, optionally scaled by how much the developer invests in water, waste, and air mitigation—because canoe and irrigation depend on water outcomes, energy and research on waste, and park on air. **Cost** is simply the sum of benefit price tags. The chart plots all 31 possible bundles so teams can see efficient vs expensive choices, colored by whether a bundle is in the top, middle, or bottom quarter of utility. The green budget line shows what the miner can afford; the black ring shows the team’s current pick.
+> **Utility** measures how valuable a *package* of community benefits is. Each benefit has a fixed base score (workforce training highest at 0.33, park lowest at 0.07). Bundle utility is the sum of those scores, optionally scaled by how much the developer invests in water, waste and air mitigation—because canoe and irrigation depend on water outcomes, energy storage and workforce training on waste, and park on air. **Cost** is simply the sum of benefit price tags. The chart plots all 31 possible bundles so teams can see efficient against expensive choices. Solid dots are bundles the developer's budget covers and faded dots cost more than it; the orange line is that budget, and the black ring is the team's current pick. Utility is the vertical axis, so colour is not used to repeat it.
+>
+> Utility here is a **scoring convention for ranking packages against one another**, not a measurement of anything in the ground. The water, waste and air ledgers are the physical model, and they are never summed.
 
 ---
 

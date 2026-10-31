@@ -1,13 +1,17 @@
 # `src/model` — the physical layer
 
-> **Superseded in part, 24 October 2026.** The water model below was rebuilt: inflow now scales with
-> the aquifer captured rather than with licence area, drawdown uses the transient Theis solution
-> rather than steady-state Thiem, and a waste/land ledger was added. The numbers in the water and
-> canoe sections of this file are from the earlier version and are NOT current.
+> **Current as of 31 October 2026.** Illustrative figures in this file may lag the
+> parameters; the code is the reference. Run `npm run model` for the live scenario
+> space, `node scripts/worked-example.ts` for a line-by-line worked example, and
+> `npm run check:fixes` for the pre-registered checks — around seventy of them,
+> each stating in advance which way a result would have to fall to go against the
+> claim it tests.
 >
-> Current reference: **"The Aurelean model layer: equations, parameters and provenance"**
-> (24 October 2026), in the project folder. Run `npm run model` for live numbers and
-> `node scripts/worked-example.ts` for a line-by-line worked example.
+> Prose reference: **"The Aurelean model layer: equations, parameters and
+> provenance"** in the project folder. It predates the 31 October revisions
+> (production-rate-dependent dewatering, facility siting rules, benefit ID
+> rename) and needs regenerating against `docs/simulation-equations-and-logic.md`,
+> which *is* current.
 
 Pure functions. Physical inputs in, physical quantities out. No React, no
 budgets, no scores, no UI. Run `npm run model` to print the whole scenario
@@ -50,12 +54,34 @@ lost unless $1.8M goes to reinjection" has something to trade.
 
 ### The division of the ledger
 
-Dewatering scales with **licence area**; process consumption scales with
+Dewatering scales with the **aquifer captured** by the excavation and, since
+31 October 2026, with the **rate of advance**; process consumption scales with
 **throughput**. The community chooses area, the developer chooses throughput, so
-each side owns one half of the water ledger — and for an underground mine in a
-karst aquifer the half the community owns is both the larger volume and the half
-that threatens the cistern. The community's own size vote is what endangers the
+each side owns part of the water ledger — and for an underground mine in a karst
+aquifer the part the community owns is both the larger volume and the part that
+threatens the cistern. The community's own size vote is what endangers the
 monument it is trying to protect.
+
+### Production rate cuts both ways
+
+```
+inflow = capture(area) × outcropArea × specificInflow × advanceIntensity(rate)
+
+advanceIntensity(rate) = (1 − β) + β × rate / NOMINAL_THROUGHPUT_T_PER_YR
+β = DEWATERING_ADVANCE_FRACTION = 0.35,  floored at 0.1
+```
+
+Mining **slowly** keeps the pumps running longer, and a transient cone of
+depression widens with time. Mining **quickly** means pre-draining ahead of a
+face that is advancing faster, so the pumps run harder. Neither is a way out:
+across the available rates the two effects roughly cancel, and the drawdown
+curve is a shallow U rather than a slope.
+
+`advanceIntensity` is exactly 1.0 at nominal throughput, so every figure
+published for a 3.0 Mt/yr plan is unaffected by this term. β is calibrated, not
+observed: it sits inside the range reported for open pits, where pre-drainage is
+a large minority of total pumping, and it is set so that production rate is not
+an exploitable lever on the receptors.
 
 ### Dewatering is withdrawal without consumption
 
@@ -110,18 +136,40 @@ and the benefit cannot be delivered at all.
 
 ## Known gaps
 
-- **Capacity does not affect drawdown.** Defensible — a higher throughput empties
-  the same reserve faster rather than opening a larger void — but the rate of
-  development plausibly matters, and at present the developer's choice cannot
-  threaten the cistern at all. A decision, not an oversight.
-- **Receptor distances are fixed constants.** They should come from the map once
-  siting is expressed in kilometres instead of map percentage.
-- **Size and capacity are not mutually consistent.** 8 km² at 3.0 Mt/yr gives a
-  40-year life; Taylor's Rule puts a 120 Mt reserve nearer 21 years. Some
-  size/capacity pairs are not real mine plans and could be flagged as such.
-- **`DEWATERING_M3_PER_D_PER_KM2` is a calibration, not an observation.** It is
-  the single most load-bearing number here and the one most in need of a real
-  site analogue.
-- **Waste and air ledgers are not written yet.** Waste should come from strip
-  ratio and mass yield rather than from licence area, which is what the current
-  `MINE_SIZES` table does.
+- **Receptor distances are fixed constants** for the water ledger. They should
+  come from the map once siting is expressed in kilometres rather than map
+  percentage. The *air* ledger already measures from actual placements.
+- **Size and capacity are not mutually consistent.** Some size/capacity pairs are
+  not real mine plans; `isPlausibleMinePlan` flags them against Taylor's Rule and
+  the interface reports it, but nothing prevents choosing one.
+- **The specific-inflow constant is a calibration, not an observation.** It
+  remains the most load-bearing number here and the one most in need of a real
+  site analogue. `DEWATERING_ADVANCE_FRACTION` is likewise calibrated.
+- **Process makeup water does not contribute to receptor drawdown.** It is
+  withdrawn, reported, and counted as consumed, but only dewatering drives the
+  Theis calculation. The omission is small — process makeup runs from about 2%
+  of dewatering at 0.5 Mt/yr to about 25% at 5 Mt/yr — and correcting it would
+  move the nominal case, so it is recorded here rather than silently absorbed.
+- **`REBOUND_YR_PER_M_DRAWDOWN` is unused.** Post-closure recovery is reported
+  through the horizon constant instead; the rebound rate is retained for the
+  twin, where it will matter.
+- **The two mitigation curves are a convention.** `finalForAlloc` says money has
+  diminishing returns and cannot reach zero, which is true of real remediation,
+  but the particular coefficients are chosen to make the trade-off playable.
+  They are not part of the physical layer and the interface says so.
+
+## For the digital twin team
+
+The whole point of this directory is that these relations can be driven by real
+site data instead of the teaching scenario. Three things to know:
+
+1. **Everything here is a pure function.** No React, no budget, no score, no UI.
+   Replace the parameters in `params.ts` and the relations hold.
+2. **Each parameter carries its provenance** in a comment, and is marked
+   *observed* or *calibrated*. Calibrated means chosen to make the exercise
+   behave; those are the ones that need site analogues first.
+3. **There is no total, and that is deliberate.** Each dimension gets a ledger in
+   its own units. A cubic metre of water and a tonne of tailings are not the same
+   kind of thing, and the framework this instrument serves objects specifically to
+   summing unlike things into one number. If the twin needs an aggregate, make
+   the aggregation an explicit, visible, arguable step.

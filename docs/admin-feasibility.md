@@ -30,13 +30,22 @@ Any **Fail** in any section → **Not Feasible**. Warnings alone → **Suboptima
 
 ---
 
-## 3. Section 1 — Mine size & no-go limits
+## 3. Section 1 — Mine size
 
-Checks that community and developer negotiated a compatible project scale and that no-go zone counts are valid.
+Checks that the community and the developer are negotiating the same project.
+
+### A refusal is not a size gap
+
+If the community voted **against a mine at all** (`winnerId = 'oppose'`, the
+recorded outcome of stage one), this section **fails** on its own terms. It is a
+refusal, not a disagreement about scale, and the remedy line says so: no
+benefits package buys consent withheld in principle, and shrinking the mine does
+not answer a vote about whether to mine.
 
 ### Mine size alignment
 
-Community **winner** size (from voting matrix) is compared to developer **technical** size (`size_km2` in CSV):
+Otherwise the community **winner** is compared to the developer's **technical**
+size (`size_km2` in the CSV):
 
 | Size gap (steps) | Section verdict | Meaning |
 |------------------|-----------------|---------|
@@ -44,40 +53,72 @@ Community **winner** size (from voting matrix) is compared to developer **techni
 | 1–2 | Warning | Close but not identical; deal may still work. |
 | 3+ | Fail | Sizes too far apart — not feasible. |
 
-Mine size tiers (ordered): 8 km² → 4 km² → 2 km² → 1 km² → 0.5 km² → Oppose.
+Mine size tiers (ordered): 8 km² → 4 km² → 2 km² → 1 km² → 0.5 km².
 
-### No-go zone limits
+### No-go zones are not judged here
 
-- Community zone count must match `noGoZoneCount` in the CSV.
-- Zone count must not exceed the max for the community’s winning mine size (see [regional-map-no-go-zones.md](regional-map-no-go-zones.md)).
-- Zone count must not exceed the max allowed for the developer’s actual mine size (`size_km2`).
+Only one no-go failure is raised in this section, and it is about the **file**,
+not the plan: the community CSV must be internally consistent (its
+`noGoZoneCount` must match the zones it lists, and must not exceed the maximum
+for the winning size — see
+[regional-map-no-go-zones.md](regional-map-no-go-zones.md)).
+
+Whether the **developer respected** those zones is tested one way only, by
+actual overlap, in Section 3. This section used to also fail a plan whenever the
+community had designated more zones than the *developer's* chosen size allowed.
+That was backwards: a no-go zone is the community's veto, and a developer
+choosing a larger mine cannot delete it. The count is reported here as context —
+at a larger mine the developer simply has less room to site around them.
 
 ---
 
 ## 4. Section 2 — Environmental & community benefits
 
-Checks whether developer mitigation outcomes support what the community requested.
+Reads the physical ledgers in `src/model` and asks what actually breaks.
 
-### Water (conditional)
+> **Replaced in October 2026.** This section used to apply two hard-coded
+> limits — `final_water ≤ 800,000 m³` and `final_waste ≤ 5,000,000 tons` —
+> that had no source behind them and, worse, were applied **only when the
+> community happened to request a related benefit**. The same physical plan
+> therefore passed or failed depending on what had been asked for. Both are
+> gone.
 
-**Applied only if** community selected **canoe** or **irrigation**:
+### Water
 
-- Developer `final_water` must be **≤ 800,000 m³**.
-- Otherwise → **Fail**.
+- **Balance**: pumping as a multiple of natural recharge. Above 1× the shortfall
+  comes out of stored water and the table keeps falling.
+- **Old Cistern** and **agricultural wells**: transient (Theis) drawdown against
+  the available column, with the spend that would avert it — or `null` where no
+  affordable spend reaches it, which is a real answer rather than a gap.
+- Dewatering scales with the aquifer captured **and with production rate**:
+  mining slowly pumps for longer, mining quickly pre-drains harder.
 
-### Waste / land (conditional)
+### Waste and land
 
-**Applied only if** community selected **park** or **energy**:
+- Waste rock and tailings follow the **tonnage mined**, not the licence area.
+- Disturbed ground (dumps + impoundment) against the community licence area.
+  Over → **Fail**: more tailings underground, a larger licence, or the plan does
+  not fit the ground it was given.
 
-- Developer `final_waste` must be **≤ 5,000,000 tons**.
-- Otherwise → **Fail**.
+### Air
+
+Computed from **where the facilities actually are** in the developer CSV.
+
+- PM10 and PM2.5 annual means at the Old Town and the University Campus.
+- **EU limit values** (40 and 25 µg/m³) are binding law — an exceedance is a
+  **refusal**, not a warning, and no benefits package offsets it.
+- **WHO guidelines** (15 and 5) are advisory and about five times stricter. An
+  operation can sit lawfully between the two for its whole life; that gap is
+  what the community has to argue in.
 
 ### Benefits funding
 
 Every benefit ID in the community CSV must appear in the developer’s `selected_benefits`:
 
 - All funded → Pass (for this sub-check).
-- Any missing → **Warning** (names listed in the panel).
+- Any missing → **Warning**. Each missing benefit is named **with its price**
+  and set against the unassigned budget, so the read-out distinguishes *could
+  not afford it* from *chose not to fund it*.
 
 ---
 
@@ -109,13 +150,39 @@ Facility placement rules on the Developer map: [facility-siting-rules.md](facili
 
 ---
 
-## 6. Related dashboard elements
+## 6. The closing read-out — "Why it came out this way"
+
+Added 31 October 2026, below the three section cards.
+
+The section cards narrate, and a narration does not give you a threshold: beta
+testers could read all three and still not answer *why did we fail, and by how
+much*. "The developer did not fund the irrigation system" does not tell anyone
+what funding it would have cost.
+
+Every fail and every warning therefore also records four things:
+
+| Field | Meaning |
+|-------|---------|
+| `test` | What was tested, in the terms the model tests it in |
+| `measured` | What this plan does |
+| `threshold` | What it had to do to pass |
+| `remedy` | What would change it, or `null` where nothing would |
+
+`remedy: null` is a real answer rather than a gap in the model — some harms are
+not purchasable, and the card says so instead of quoting a figure that would not
+work. Failures are listed before warnings, and each carries the section it came
+from.
+
+---
+
+## 7. Related dashboard elements
 
 | Element | Purpose |
 |---------|---------|
 | Utility–cost chart | Compare all 31 benefit bundles vs developer budget (not feasibility) |
 | Overlap map | Visual siting check |
 | Three-section panel | Plain-language pass/warn/fail for each category |
+| "Why it came out this way" | Every failure and warning with measurement, threshold and remedy |
 | Upload summaries | Parsed winner, no-go zones, size, budget, facility count |
 
 ---
@@ -123,6 +190,8 @@ Facility placement rules on the Developer map: [facility-siting-rules.md](facili
 ## Implementation
 
 - `src/components/AdminView.tsx` — CSV parsing, `buildFeasibilityAnalysis`, section cards
+- `src/components/WhyItFailedCard.tsx` — the `Blocker` type and the closing read-out
+- `src/model/` — the water, waste and air ledgers this section reads
 - `src/components/map/AdminNegotiationMap.tsx` — overlap visualization
 - `src/data/noBuildAreas.ts` — zone limits and labels
 - `src/data/mapOverlap.ts` — conflict detection

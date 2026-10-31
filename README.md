@@ -29,17 +29,22 @@ To ensure role separation, each interface is protected by a PIN code.
 
 ### 1. Community Group (`1234`)
 *   **Goal**: Maximize unlocked benefits while protecting critical areas.
-*   **Matrix**: Vote (0-5) on preferences for 5 Mine Size Scenarios.
-*   **Benefits**: Larger mines unlock more benefits (Canoe, Irrigation, etc.). Costs are **not** shown to social teams — only how many benefits are selected.
-*   **No-go zones**: Five regions including Agriculture Lands (see [regional-map-no-go-zones.md](docs/regional-map-no-go-zones.md)).
+*   **Step 1 — Is there a mine?** Each of the five groups answers accept / refuse / no view. **Three of five must accept.** Abstaining counts toward neither side — silence is not consent — so the question can sit openly unsettled. A refusal ends the vote and exports `oppose`.
+*   **Step 2 — How big?** Each group scores the five sizes 0–5. **The scores set the group's order, not its weight**: the winner is decided by instant-runoff over each group's best *acceptable* size, so one group cannot outweigh another by writing larger numbers. A size scored **0 is unacceptable** and is never a transfer target. The elimination rounds are shown.
+*   **Step 3 — Benefits**: Larger mines unlock more. Costs are **not** shown to social teams — only how many are selected.
+*   **Step 4 — No-go zones**: Five regions; how many may be named depends on the winning size (see [regional-map-no-go-zones.md](docs/regional-map-no-go-zones.md)).
 *   **Output**: Downloads `community_results.csv`.
 
 ### 2. Mining Developer (`5678`)
 *   **Goal**: Maximize production while meeting environmental standards.
-*   **Step 1 (Config)**: Select **Mine Size** (Waste Baseline) and **Capacity** (Water Baseline).
-    *   *Logic*: Total Budget = ($1.5M \times \text{Size}$) + ($1.5 \times \text{Capacity}$).
-*   **Step 2 (Allocation)**: Use slider to split budget between **Water Mitigation** and **Waste Management**.
-    *   *Math*: $Value_{final} = Baseline \times (0.2 + 0.8 \times e^{-0.5 \times Budget})$.
+*   **Step 1 — Scenario**: Select **Mine Size**, **Capacity** and **Facility tier**, then lock. Locking fixes the budget and the minimum that must be spent on water and waste.
+    *   *Budget*: `$600,000 + 2 × (mineIdx + capacityIdx) × $2,000,000 + airAlloc`
+*   **Step 2 — Siting**: Place every required facility on the map. Where they sit decides air quality at the Old Town and whether a community no-go zone has been trespassed. **Air is reported live while placing** — in a panel under the map and as badges over the receptors themselves. Extraction must be within 1 km of the ore body; nothing else may stand on it; no two facilities within 0.5 km.
+*   **Step 3 — Mitigation**: Spend above the locked minimums on water, waste and air. A **Show the mathematics** switch reveals the curve with the current numbers substituted.
+    *   *Water and waste*: `final = floor + (baseline − floor) × e^(−0.5 × $M)`, floor = 5% of baseline.
+    *   *Air*: no curve — equipment in packages, plus three years of operating assurance at 15% of capital a year. Where the facilities sit matters more than what is spent.
+*   **Step 4 — Benefits**: Commit from what is left. Going back to Step 3 to free up budget is a normal move.
+*   **Impact ledgers**: water, waste and air in physical units, **never summed**. Collapsed by default behind a switch; three verdicts stay on show.
 *   **Output**: Downloads `mining_simulation_results.csv`.
 
 ### 3. Joint Negotiation (`9999`)
@@ -47,19 +52,21 @@ To ensure role separation, each interface is protected by a PIN code.
 *   **Features**: No-go zone toolbar, draggable regional map (industrial + community benefit symbols), community benefit selection, developer mitigation sliders (water / waste / air), utility–cost chart with **live lever weights** (see [utility-calculation.md](docs/utility-calculation.md)).
 *   **Community UI**: Benefit costs are hidden from the social-teams view; only benefit count is shown.
 *   **Submit**: **Submit Negotiation** (enabled after scenario lock) downloads `joint_negotiation_results.csv` — same mitigation fields as the developer export, plus `no_build_zones` and `benefit_placements` columns. A confetti celebration runs via the [`canvas-confetti`](https://www.npmjs.com/package/canvas-confetti) library.
-*   **No-go zones**: Five selectable regions including **Agriculture Lands** (west + east of Mountain Trails; legacy CSV alias `campus` → `agriculture`). See [regional-map-no-go-zones.md](docs/regional-map-no-go-zones.md).
+*   **No-go zones**: Five selectable regions — Mountain Trails, Old Town, Aquifer Systems, University Campus and Agriculture Lands. See [regional-map-no-go-zones.md](docs/regional-map-no-go-zones.md).
 
 ### 4. Administrator (`5555`)
 *   **Action**: Upload both CSV files (community + developer).
+*   **Load the community file first** — it carries the no-go zones and the agreed size, which are what the developer's submission is judged against.
 *   **Feasibility panel** (three sections, each Pass / Warning / Fail):
-    1.  **Mine size & no-go limits** — Size alignment between community winner and developer mine; no-go zone counts vs mine-size rules.
-    2.  **Environmental & community benefits** — Water (≤ 800k m³ if canoe/irrigation), waste (≤ 5M tons if park/energy), and whether all requested benefits were funded.
-    3.  **Map siting** — Whether industrial facilities overlap community no-go zones (see overlap map).
-*   **Negotiation Dashboard**:
-    *   **Scatter Plot**: All **31** non-empty community benefit bundles (cost vs utility).
-    *   **Community Choice**: Current selection marked with a **black ring**; dot colors show utility percentile (red / orange / green).
-    *   **Developer Budget**: Green dashed vertical line.
-    *   **Overlap Map**: Red borders = no-go zones; amber rings = facility conflicts.
+    1.  **Mine size** — alignment between the community's winner and the developer's mine. A community that *refused* a mine is its own failure, not a size gap.
+    2.  **Environmental & community benefits** — read from the physical ledgers in `src/model`: water balance against recharge, drawdown at the Old Cistern and the farm wells, waste tonnages and whether disturbed ground fits the licence, PM10 and PM2.5 at the Old Town and campus against the EU limit values and WHO guidelines, and whether every requested benefit was funded.
+    3.  **Map siting** — whether any facility overlaps a community no-go zone.
+*   **"Why it came out this way"** — a closing card listing every failure and warning with **what the plan measures, what it had to measure, and what would change it**. Where nothing would change it at any price, it says so rather than quoting a figure that would not work.
+*   **Negotiation Dashboard** (below the verdict, as reference):
+    *   **Scatter Plot**: all **31** non-empty benefit bundles, cost against a weighted utility score.
+    *   **Dot colour**: solid = inside the developer's budget, faded = above it. Utility is the y-axis; colour does not repeat it. **Black ring** = the community's selection.
+    *   **Developer Budget**: orange dashed vertical line.
+    *   **Overlap Map**: red borders = no-go zones; amber rings = facility conflicts.
 *   **Result**: **Optimal** (green), **Suboptimal** (yellow), or **Not Feasible** (red).
 
 See **[Admin feasibility analysis](docs/admin-feasibility.md)** for full rules.
@@ -96,16 +103,50 @@ The site is hosted on **Vercel** and connected to the GitHub repository.
 3.  Vercel will automatically detect the push and redeploy the site within 1-2 minutes.
 
 ### Troubleshooting
-*   **"Not Feasible" result?** Check all three feasibility sections — water/waste limits, mine size gap, no-go zone counts, unfunded benefits, or facility–no-go map conflicts.
+*   **"Not Feasible" result?** Read the **"Why it came out this way"** card at the foot of the verdict. It names each failure with the figure the plan produced, the figure it had to produce, and what would move it.
 *   **`npm run dev` slow or no URL?** First launch on Desktop/iCloud can take 30–60s; wait for `Local: http://127.0.0.1:5173/`. See vite config for startup hints.
 *   **CSV error?** Ensure users do not rename or modify the CSV files before uploading.
 
 ---
 
-## Future Work — Action Items for Further Development
+## Future work
 
-1. **Add air quality as a core decision lever.** Introduce a developer choice for extraction and refining technologies, each with a measurable impact on an air quality score. Include an air quality remediation lever to allow mitigation through investment or policy decisions, completing the three primary environmental factors in the simulation (water, waste, air).
+The three items that stood here — air as a core lever, benefits linked to
+physical impacts, and spatial logic connecting production to impact — are done.
+Air is a full ledger driven by a Gaussian plume from actual facility positions;
+workforce training and energy storage together electrify the haul fleet; and
+where facilities sit decides both air quality and no-go trespass. What is left:
 
-2. **Explicitly link environmental impacts to community benefits.** Forestry initiatives should improve air quality outcomes. Water consumption should directly influence irrigation capacity and underground canoe or water-based tourism options. Waste generation should affect land use constraints and the viability of advanced manufacturing or industrial redevelopment.
+1. **Map zoom and pan.** Queued for the revision round after 5 November. One
+   trap: `DraggableRegionalMap` computes the image rectangle from the
+   container's *layout* size while reading the pointer against
+   `getBoundingClientRect`, which is the *transformed* size. A zoom makes those
+   disagree and every placement lands in the wrong spot. The fix is two
+   rectangles — one for layout, one for hit-testing.
+2. **Receptor distances from the map.** The water ledger still uses fixed
+   constants for the distance to the cistern and the farm wells. The air ledger
+   already measures from real placements; water should too.
+3. **Process makeup water in the drawdown.** It is withdrawn and counted as
+   consumed, but only dewatering drives the Theis calculation. Small — 2% of
+   dewatering at 0.5 Mt/yr, 25% at 5 Mt/yr — and correcting it moves the
+   nominal case, so it is deliberate and recorded rather than overlooked.
+4. **Site analogues for the calibrated parameters.** Every parameter in
+   `src/model/params.ts` is marked *observed* or *calibrated*. The calibrated
+   ones — specific inflow above all — are what the digital twin must replace
+   first.
 
-3. **Implement spatial logic connecting production activities to impacts.** The location of extraction, processing, and waste handling should determine which communities are affected and which mitigation or benefit options are available.
+## For the digital twin team
+
+`src/model/` is the physical layer and it is the part that transfers: pure
+functions, physical units in and out, no React and no scoring. See
+[`src/model/README.md`](src/model/README.md). Two conventions worth knowing
+before reading the code:
+
+- **There is no total, deliberately.** Each dimension has its own ledger in its
+  own units. If the twin needs an aggregate, make the aggregation an explicit
+  and arguable step rather than burying it.
+- **Checks are pre-registered.** `npm run check:fixes` runs around seventy
+  assertions, each stating in advance which way a result would have to fall to
+  go against the claim it tests. Several have caught real defects, including two
+  that had previously passed only because the test and the code shared the same
+  mistake.
