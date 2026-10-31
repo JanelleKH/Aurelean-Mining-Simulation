@@ -22,7 +22,35 @@ export const K_W = 0.5;
 export const K_S = 0.5;
 
 export const MITIGATION_SPEND_MIN_USD = 300_000;
+
+/**
+ * The TIER unit of the budget model — not the slider granularity.
+ *
+ * One tier is what each step up in mine size or production rate adds to the
+ * budget, and the water and waste ceilings are five and six tiers above the
+ * floor. Everything about how much money exists in the exercise is built on
+ * this number, so it does not move.
+ *
+ * It used to double as the slider's step, which is what beta testers hit: the
+ * only water allocations reachable were $0.3M, $2.3M, $4.3M and so on, and a
+ * drag to $1M snapped back to $0.3M. A negotiation conducted in $2M jumps is
+ * not a negotiation. The two roles are now separate constants.
+ */
 export const MITIGATION_STEP_USD = 2_000_000;
+
+/**
+ * How finely the water and waste sliders move. Eight positions per tier.
+ *
+ * $250k divides the tier exactly, so every tier-aligned figure — the locked
+ * floors, the ceilings — is still reachable precisely, and the figures in
+ * between are now reachable too.
+ *
+ * The air slider deliberately does NOT use this. Control equipment comes in
+ * discrete packages rather than by the dollar: you buy a baghouse or you do
+ * not, and clampAirSpend snaps to those tiers whatever the slider offers. A
+ * finer air slider would only let a team drag to $1M and watch it jump to zero.
+ */
+export const MITIGATION_SLIDER_STEP_USD = 250_000;
 export const WATER_SPEND_MAX_USD = MITIGATION_SPEND_MIN_USD + 5 * MITIGATION_STEP_USD;
 export const WASTE_SPEND_MAX_USD = MITIGATION_SPEND_MIN_USD + 6 * MITIGATION_STEP_USD;
 export const AIR_SPEND_MAX_USD = 6_000_000;
@@ -136,7 +164,9 @@ export const clampMitigationLeverSpend = (
   spendCeilingUsd: number
 ) => {
   const min = MITIGATION_SPEND_MIN_USD;
-  const step = MITIGATION_STEP_USD;
+  // Quantize to the slider's granularity, not the budget tier, or a drag to
+  // $1M snaps back to the floor.
+  const step = MITIGATION_SLIDER_STEP_USD;
   const cap = Math.min(Math.max(0, maxAffordableUsd), spendCeilingUsd);
   if (cap < min) return 0;
   const r = Number.isFinite(raw) ? raw : min;

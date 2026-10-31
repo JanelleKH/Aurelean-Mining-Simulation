@@ -7,8 +7,11 @@ import {
   ScenarioHeader,
   ScenarioDropdowns,
   ScenarioLockControls,
+  PhaseNavControls,
+  StepGuide,
   BudgetSummaryCard,
   MitigationSlidersSection,
+  LedgerSection,
   CommunityBenefitsSection,
   ExportResultsButton,
 } from './MitigationBudgetSections';
@@ -37,10 +40,7 @@ export const DeveloperView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col gap-3 min-h-0 overflow-hidden relative font-sans text-gray-900 h-full">
-      <p className="text-[11px] text-gray-600 px-1 shrink-0">
-        Technical teams: lock scenario → site facilities on the map → allocate mitigation → select
-        community benefits. Export when finished.
-      </p>
+      <StepGuide b={b} />
 
       <div className="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 overflow-hidden">
         {/* Left: scenario dropdowns + map */}
@@ -62,6 +62,8 @@ export const DeveloperView: React.FC = () => {
             avgChainSpreadPct={b.avgChainSpreadPct}
             spreadPenaltyPct={b.spreadPenaltyPct}
           />
+          {/* Siting's nav belongs under the map, which is what it acts on. */}
+          <PhaseNavControls b={b} scope="siting" />
         </div>
 
         {/* Right: site visual + mitigation + benefits */}
@@ -88,7 +90,10 @@ export const DeveloperView: React.FC = () => {
           </div>
 
           <MitigationSlidersSection b={b} />
+          <LedgerSection b={b} benefitIds={selectedBenefits} />
+          <PhaseNavControls b={b} scope="mitigation" />
           <CommunityBenefitsSection b={b} selectedBenefits={selectedBenefits} />
+          <PhaseNavControls b={b} scope="benefits" />
           <ExportResultsButton b={b} />
         </div>
       </div>

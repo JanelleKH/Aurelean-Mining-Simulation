@@ -90,6 +90,9 @@ export const CommunityView: React.FC = () => {
     winnerId: sizeWinnerId,
     tallies,
     refusals,
+    firstPreferences,
+    rounds,
+    unresolved,
   } = useMemo(() => tallySizeVotes(votes), [votes]);
 
   const stageOne = useMemo(() => resolveStageOne(stances), [stances]);
@@ -412,11 +415,18 @@ export const CommunityView: React.FC = () => {
           </div>
           <p className="text-[11px] text-gray-600 mt-1 max-w-3xl leading-snug">
             Each group scores every size from 0 to 5. <strong>0 does not mean &ldquo;no
-            opinion&rdquo;</strong> — it means that size is unacceptable to your group, and the
-            number of groups saying so is counted in the last column beside the total. 5 means
-            strongly preferred. The size with the highest total wins, so a size can win while
-            groups still object to it; those objections are the material for the negotiation rather
-            than something the vote resolves.
+            opinion&rdquo;</strong> — it means that size is unacceptable to your group, and a size
+            you score 0 will never be counted for you, even if everything you preferred is
+            eliminated. 5 means strongly preferred.
+          </p>
+          <p className="text-[11px] text-gray-600 mt-1 max-w-3xl leading-snug">
+            <strong>The scores set your order, not your weight.</strong> Every group carries one
+            voice however large the numbers it writes, because summing the scores let a group that
+            scored generously outweigh one that scored sharply — two groups putting a 5 on one
+            size could beat three groups whose first choice was something else. So each group&apos;s
+            top acceptable size is counted; if nothing holds a majority the weakest size drops out
+            and those groups move to their next acceptable size, until one has a majority of the
+            groups still counting.
           </p>
         </div>
 
@@ -435,10 +445,10 @@ export const CommunityView: React.FC = () => {
                   {g.label}
                 </th>
               ))}
-              <th className="p-2 border font-bold bg-gray-200 text-center min-w-[120px]">
-                Total
+              <th className="p-2 border font-bold bg-gray-200 text-center min-w-[140px]">
+                Groups backing it
                 <div className="text-[9px] font-normal normal-case text-gray-600">
-                  and who finds it unacceptable
+                  first preferences · raw score · refusals
                 </div>
               </th>
             </tr>
@@ -469,7 +479,16 @@ export const CommunityView: React.FC = () => {
                   </td>
                 ))}
                 <td className="p-2 border text-center">
-                  <div className="font-bold text-base text-blue-600">{tallies[size.id]}</div>
+                  <div className="font-bold text-base text-blue-600">
+                    {firstPreferences[size.id]}
+                    <span className="text-[10px] font-normal text-gray-500">
+                      {' '}
+                      of {GROUPS.length}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-gray-400 leading-tight">
+                    raw score {tallies[size.id]} — not what decides it
+                  </div>
                   <div
                     className={clsx(
                       'text-[9px] leading-tight',
@@ -614,6 +633,74 @@ export const CommunityView: React.FC = () => {
             </tr>
           </tbody>
         </table>
+
+        {/*
+          How the size was reached, round by round. The count is no longer a
+          single sum anyone can read off the page, so it has to show its work -
+          otherwise "1 km2 won" is an assertion the room has to take on trust.
+          A facilitator can walk the table and point at the transfer that
+          decided it, which is the moment worth discussing.
+        */}
+        {mineApproved && rounds.length > 0 && (
+          <div className="p-3 border-t bg-gray-50">
+            <h4 className="text-xs font-bold text-gray-800">How the size was reached</h4>
+            {unresolved ? (
+              <p className="mt-1 text-[11px] text-red-800 bg-red-50 border border-red-200 rounded p-2 leading-snug">
+                <strong>No size agreed.</strong> {unresolved}
+              </p>
+            ) : (
+              <p className="text-[10px] text-gray-500 mt-0.5">
+                One voice per group. Each round counts every group&apos;s best surviving size.
+              </p>
+            )}
+            <ol className="mt-1.5 space-y-1">
+              {rounds.map(r => {
+                const needed = Math.floor(r.activeGroups / 2) + 1;
+                return (
+                  <li
+                    key={r.round}
+                    className={clsx(
+                      'rounded border px-2 py-1 text-[11px] leading-snug',
+                      r.decidedBy
+                        ? 'border-green-400 bg-green-50 text-green-900'
+                        : 'border-gray-300 bg-white text-gray-700'
+                    )}
+                  >
+                    <span className="font-bold">Round {r.round}:</span>{' '}
+                    {SIZE_BALLOT.filter(m => r.counts[m.id] > 0)
+                      .map(m => `${m.label} ${r.counts[m.id]}`)
+                      .join(' · ') || 'nothing counted'}
+                    {r.exhaustedGroups > 0 && (
+                      <span className="text-gray-500">
+                        {' '}
+                        ({r.exhaustedGroups} group
+                        {r.exhaustedGroups === 1 ? '' : 's'} out of the count — every size they
+                        would accept has been eliminated)
+                      </span>
+                    )}
+                    {r.decidedBy ? (
+                      <span className="font-semibold">
+                        {' '}
+                        — {MINE_SIZES.find(m => m.id === r.decidedBy)?.label} has{' '}
+                        {r.counts[r.decidedBy]} of {r.activeGroups}, a majority of {needed}. Decided.
+                      </span>
+                    ) : r.eliminated.length ? (
+                      <span>
+                        {' '}
+                        — no size reached {needed} of {r.activeGroups}, so{' '}
+                        {r.eliminated
+                          .map(id => MINE_SIZES.find(m => m.id === id)?.label ?? id)
+                          .join(' and ')}{' '}
+                        {r.eliminated.length === 1 ? 'drops' : 'drop'} out and those groups move to
+                        their next acceptable size.
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
       </div>
 
       <div className="flex-[2] flex flex-col gap-2 bg-white p-3 rounded-xl shadow-lg border border-gray-200 h-full">

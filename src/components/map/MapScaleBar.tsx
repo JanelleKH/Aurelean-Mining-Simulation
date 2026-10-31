@@ -10,17 +10,31 @@ export interface MapScaleBarProps {
 /**
  * 1 km scale bar. Must be a direct child of the map image overlay (explicit width)
  * so percentage width resolves against the map image, not a shrink-wrapped wrapper.
+ *
+ * Made legible 31 October 2026. Beta item 3 asked to "make sure there is a
+ * kilometer legend on the map" — and there already was one. It was an 8px
+ * label in a translucent white chip, sitting on a dark aerial photograph, in
+ * the corner. Present and invisible are the same thing to a room working at
+ * speed, so the question was never whether it existed but whether anyone could
+ * find it. It is now a solid white plaque with a full border, readable type,
+ * and the distance named twice — once as the bar and once in words.
  */
 export const MapScaleBar: React.FC<MapScaleBarProps> = ({ className }) => (
+  // The OUTER element carries the percentage width, because that is what makes
+  // the bar one kilometre long rather than merely labelled as one. It must stay
+  // a percentage of the map image: a fixed pixel width would look identical and
+  // be wrong at every size but one.
   <div
     className={clsx('absolute bottom-2 left-2 z-20 pointer-events-none', className)}
     style={{ width: `${KM_TO_MAP_PCT}%` }}
     aria-label="Map scale: 1 kilometer"
   >
-    <div className="h-1.5 w-full border-b-2 border-l-2 border-r-2 border-gray-900 bg-white/80 box-border" />
-    <span className="mt-0.5 inline-block text-[8px] font-bold text-gray-900 bg-white/85 px-1 rounded shadow-sm">
-      1 km
-    </span>
+    <div className="rounded border-2 border-gray-900 bg-white px-1 py-1 shadow-lg">
+      <div className="h-2 w-full border-b-[3px] border-l-[3px] border-r-[3px] border-gray-900 box-border" />
+      <span className="mt-1 block text-center text-[11px] font-extrabold leading-none text-gray-900">
+        1 km
+      </span>
+    </div>
   </div>
 );
 

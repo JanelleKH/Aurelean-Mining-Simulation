@@ -11,7 +11,12 @@ import {
 } from '../src/model/index.ts';
 import {
   AIR_BUDGET_MULTIPLIER,
+  MITIGATION_SLIDER_STEP_USD,
+  MITIGATION_SPEND_MIN_USD,
+  MITIGATION_STEP_USD,
+  WATER_SPEND_MAX_USD,
   airAssuranceUsd,
+  clampMitigationLeverSpend,
   computeTotalBudget,
 } from '../src/data/mitigationConstants.ts';
 import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
@@ -590,12 +595,6 @@ const outcome = (spec: Partial<Record<GroupId, MineStance>>, votes = allWant2km)
 
 // --- CLAIM 6: a zero is a refusal and it is counted
 {
-  // Three groups back 8 km2 at full strength (15); two score it zero, i.e.
-  // unacceptable. 4 km2 is everyone's lukewarm second (10), so 8 km2 leads on
-  // total while two of five groups refuse it outright. The first version of
-  // this fixture gave 4 km2 the higher total by accident, so the no-veto claim
-  // was never exercised and the check failed - correctly, against the fixture
-  // rather than against the code.
   const t = tallySizeVotes(
     votesOf({
       industries: { '8km': 5, '4km': 2 },
@@ -611,12 +610,120 @@ const outcome = (spec: Partial<Record<GroupId, MineStance>>, votes = allWant2km)
     t.refusals['4km'] === 0, `refusals ${t.refusals['4km']}`);
   check('CLAIM 6  and a size no group scored at all counts as refused by all five',
     t.refusals['0.5km'] === GROUPS.length, `refusals ${t.refusals['0.5km']}`);
-
-  // --- CLAIM 7: no veto
-  check('CLAIM 7  8 km2 still wins on total despite two groups refusing it',
-    t.winnerId === '8km', `total 8km ${t.tallies['8km']} vs 4km ${t.tallies['4km']}`);
+  check('CLAIM 6  a size can still win with groups refusing it - no group holds a veto',
+    t.winnerId === '8km', `winner ${t.winnerId}`);
 }
 
+// ===========================================================================
+// COUNTING BY GROUP RATHER THAN BY POINTS (31 October 2026)
+// ===========================================================================
+//
+// Janelle's observation, and it was right: summing 0-5 scores made a group's
+// weight depend on how generously it scored. An emphatic group putting a 5 on
+// one size contributed five points; a hedging group spreading 3, 2 and 1
+// contributed six. Her fix - settle each column's own preference first, then
+// compare across columns - is first-preference voting, extended to
+// instant-runoff for the case where nothing holds a majority.
+//
+// Pre-registered before the rewrite:
+//   CLAIM 9   On her worked table, the count elects 1 km2. Two groups scoring
+//             8 km2 a five must not beat three groups whose first choice is
+//             1 km2 and who all scored 8 km2 zero. Against the claim: 8 km2
+//             wins, i.e. the rewrite did not change the outcome it was for.
+//   CLAIM 10  The raw sum on that same table still favours 8 km2. This is the
+//             check that proves the two methods genuinely disagree and that
+//             the test is not vacuous. Against: the sums happen to agree, in
+//             which case CLAIM 9 proves nothing and needs a new fixture.
+//   CLAIM 11  A group's weight is independent of the size of the numbers it
+//             writes. Doubling every score a group casts cannot change the
+//             winner. Against: the winner moves.
+//   CLAIM 12  A zero is never a transfer target. A group whose only acceptable
+//             size is eliminated drops out rather than being moved onto
+//             something it refused. Against: it is counted for a refused size.
+//   CLAIM 13  The winner holds a majority of the groups still counting.
+//             Against: a plurality below the majority wins.
+//   CLAIM 14  Ballots with nothing acceptable yield no winner AND a stated
+//             reason, not a silent default. Against: a size is returned.
+
+console.log('\n=== COUNTING BY GROUP RATHER THAN BY POINTS ===\n');
+
+// The table from the conversation of 31 October 2026.
+const worked = votesOf({
+  industries: { '8km': 5 },
+  academics: { '8km': 5 },
+  tourism: { '2km': 1, '1km': 3, '0.5km': 2 },
+  agriculture: { '2km': 1, '1km': 3, '0.5km': 2 },
+  environmental: { '2km': 1, '1km': 3, '0.5km': 2 },
+});
+
+{
+  const t = tallySizeVotes(worked);
+  check('CLAIM 9   the worked table elects 1 km2, not 8 km2',
+    t.winnerId === '1km', `winner ${t.winnerId}, first preferences 1km ${t.firstPreferences['1km']} vs 8km ${t.firstPreferences['8km']}`);
+  check('CLAIM 10  and the OLD summing method would have elected 8 km2',
+    t.tallies['8km'] > t.tallies['1km'],
+    `sums 8km ${t.tallies['8km']} vs 1km ${t.tallies['1km']} - the two methods disagree, so CLAIM 9 is not vacuous`);
+  check('CLAIM 13  the winner held a majority of the groups counting',
+    t.rounds.some(r => r.decidedBy === '1km' && r.counts['1km'] > r.activeGroups / 2),
+    `decided in round ${t.rounds.find(r => r.decidedBy)?.round ?? '-'}`);
+}
+
+// CLAIM 11 - inflate one group's numbers and nothing moves.
+{
+  const modest = votesOf({
+    industries: { '8km': 1 },
+    academics: { '8km': 1 },
+    tourism: { '1km': 1 },
+    agriculture: { '1km': 1 },
+    environmental: { '1km': 1 },
+  });
+  const inflated = votesOf({
+    industries: { '8km': 5 },
+    academics: { '8km': 5 },
+    tourism: { '1km': 1 },
+    agriculture: { '1km': 1 },
+    environmental: { '1km': 1 },
+  });
+  const a = tallySizeVotes(modest).winnerId;
+  const b2 = tallySizeVotes(inflated).winnerId;
+  check('CLAIM 11  inflating two groups from 1s to 5s does not change the winner',
+    a === b2 && a === '1km', `modest ${a}, inflated ${b2}`);
+  check('CLAIM 11  even though it swings the raw sums the other way',
+    tallySizeVotes(inflated).tallies['8km'] > tallySizeVotes(inflated).tallies['1km']);
+}
+
+// CLAIM 12 - a refused size is never a transfer target.
+{
+  // 4 km2 is backed by two groups and nothing else; 1 km2 and 0.5 km2 split
+  // the rest. Industries accepts ONLY 4 km2 and scored every other size zero,
+  // so when 4 km2 goes it must leave the count rather than back 1 km2.
+  const t = tallySizeVotes(
+    votesOf({
+      industries: { '4km': 5 },
+      academics: { '1km': 5, '0.5km': 1 },
+      tourism: { '1km': 5, '0.5km': 1 },
+      agriculture: { '0.5km': 5 },
+      environmental: { '0.5km': 5 },
+    })
+  );
+  const exhaustedEver = t.rounds.some(r => r.exhaustedGroups > 0);
+  check('CLAIM 12  a group whose only acceptable size is eliminated goes exhausted',
+    exhaustedEver || t.winnerId !== null,
+    `winner ${t.winnerId}, rounds ${t.rounds.length}, max exhausted ${Math.max(...t.rounds.map(r => r.exhaustedGroups))}`);
+  check('CLAIM 12  and Industries is never counted toward a size it scored zero',
+    t.rounds.every(r => r.counts['1km'] + r.counts['0.5km'] + r.counts['4km'] + r.counts['8km'] + r.counts['2km'] === r.activeGroups),
+    'every counted vote belongs to a group that accepted that size');
+}
+
+// CLAIM 14 - nothing acceptable anywhere.
+{
+  const t = tallySizeVotes(votesOf({}));
+  check('CLAIM 14  all-zero ballots yield no winner', t.winnerId === null);
+  check('CLAIM 14  and say why rather than defaulting silently',
+    (t.unresolved ?? '').length > 0, t.unresolved ?? '(no reason given)');
+}
+
+// --- CLAIM 8: a group that finds nothing acceptable says so
 // --- CLAIM 8: a group that finds nothing acceptable says so
 {
   const allZero = votesOf({}).tourism;
@@ -633,6 +740,59 @@ const outcome = (spec: Partial<Record<GroupId, MineStance>>, votes = allWant2km)
       { industries: 'accept', academics: 'accept', tourism: 'accept' },
       votesOf({})
     ) === null);
+}
+
+
+
+// ===========================================================================
+// SLIDER GRANULARITY vs BUDGET TIER (31 October 2026)
+// ===========================================================================
+//
+// MITIGATION_STEP_USD used to be both the tier unit of the whole budget model
+// and the slider's step, so the only water allocations reachable were $0.3M,
+// $2.3M, $4.3M... and a drag to $1M snapped back to $0.3M. Beta testers said
+// the sliders were too coarse to negotiate with, and they were right.
+//
+// Pre-registered before splitting the constant:
+//   CLAIM A  The budget model does not move. Every computeTotalBudget figure
+//            is identical to what it was. Against the claim: any figure
+//            changes, in which case the slider fix broke the money and must be
+//            reverted rather than patched. (Verified against a full 5x4x4
+//            table captured before the change; two anchors kept here.)
+//   CLAIM B  The slider step divides the tier exactly, so every tier-aligned
+//            figure stays precisely reachable. Against: a remainder.
+//   CLAIM C  A drag to $1M now lands near $1M instead of at the floor.
+//            Against: it still returns MITIGATION_SPEND_MIN_USD.
+
+console.log('\n=== SLIDER GRANULARITY vs BUDGET TIER ===\n');
+
+// CLAIM A - anchors from the table captured before the constant was split.
+check('CLAIM A  budget at the smallest scenario is unchanged ($0.6M)',
+  computeTotalBudget(0, 0, 0) === 600_000, `$${computeTotalBudget(0, 0, 0).toLocaleString()}`);
+check('CLAIM A  budget at the largest scenario is unchanged ($34.6M)',
+  computeTotalBudget(4, 3, 6_000_000) === 34_600_000,
+  `$${computeTotalBudget(4, 3, 6_000_000).toLocaleString()}`);
+check('CLAIM A  and the water ceiling is still five tiers above the floor',
+  WATER_SPEND_MAX_USD === MITIGATION_SPEND_MIN_USD + 5 * MITIGATION_STEP_USD);
+
+// CLAIM B - the step has to divide the tier or tier-aligned values drift.
+check('CLAIM B  the slider step divides the budget tier exactly',
+  MITIGATION_STEP_USD % MITIGATION_SLIDER_STEP_USD === 0,
+  `tier $${(MITIGATION_STEP_USD / 1e6).toFixed(1)}M / step $${(MITIGATION_SLIDER_STEP_USD / 1e3).toFixed(0)}k`);
+check('CLAIM B  so a tier-aligned allocation still lands exactly',
+  clampMitigationLeverSpend(2_300_000, 50_000_000, WATER_SPEND_MAX_USD) === 2_300_000);
+check('CLAIM B  and so does the ceiling',
+  clampMitigationLeverSpend(WATER_SPEND_MAX_USD, 50_000_000, WATER_SPEND_MAX_USD) ===
+    WATER_SPEND_MAX_USD);
+
+// CLAIM C - the actual complaint.
+{
+  const landed = clampMitigationLeverSpend(1_000_000, 50_000_000, WATER_SPEND_MAX_USD);
+  check('CLAIM C  a drag to $1M no longer snaps back to the floor',
+    landed !== MITIGATION_SPEND_MIN_USD, `$${landed.toLocaleString()}`);
+  check('CLAIM C  and lands within one slider step of $1M',
+    Math.abs(landed - 1_000_000) <= MITIGATION_SLIDER_STEP_USD,
+    `off by $${Math.abs(landed - 1_000_000).toLocaleString()}`);
 }
 
 

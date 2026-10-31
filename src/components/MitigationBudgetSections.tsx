@@ -10,6 +10,7 @@ import {
   CheckCircle,
   Lock,
   Unlock,
+  ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -20,6 +21,7 @@ import {
   MINE_SIZES,
   CAPACITIES,
   AIR_TIERS,
+  MITIGATION_SLIDER_STEP_USD,
   MITIGATION_STEP_USD,
   formatNumber,
   formatCurrency,
@@ -28,6 +30,7 @@ import {
 import {
   WORKFLOW_PHASE_LABELS,
   type useMitigationBudgetV2,
+  type WorkflowPhase,
 } from '../hooks/useMitigationBudgetV2';
 
 export type MitigationBudgetApi = ReturnType<typeof useMitigationBudgetV2>;
@@ -37,6 +40,92 @@ const dropdownClass = (locked: boolean) =>
     'p-2 border rounded text-sm',
     locked ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-gray-50'
   );
+
+/**
+ * The four steps, named, with the current one marked and the next action
+ * spelled out. Added 31 October 2026 for beta item 16.
+ *
+ * The screen previously opened with a single line of prose listing the steps
+ * with arrows between them, which told a team the order but not where they
+ * were in it. A second tester asked for "a clearer list of steps and what is
+ * coming" (item 42) and a third said the technical team's goal was "way too
+ * complicated" (item 22). Same complaint from three directions: the sequence
+ * was legible only to someone who already knew it.
+ */
+const STEPS: { phase: WorkflowPhase; n: number; title: string; todo: string }[] = [
+  {
+    phase: 'scenario',
+    n: 1,
+    title: 'Scenario',
+    todo: 'Choose mine size, production rate and facility type, then lock. Locking sets the budget and the minimum you must spend on water and waste.',
+  },
+  {
+    phase: 'siting',
+    n: 2,
+    title: 'Siting',
+    todo: 'Place every required facility on the map. Where they sit decides air quality at the Old Town and whether you have trespassed on a community no-go zone.',
+  },
+  {
+    phase: 'mitigation',
+    n: 3,
+    title: 'Mitigation',
+    todo: 'Spend above the locked minimums on water, waste and air. You can come back here after looking at benefits.',
+  },
+  {
+    phase: 'benefits',
+    n: 4,
+    title: 'Benefits',
+    todo: 'Commit to community benefits from what is left, then export. Going back to Step 3 to free up money is a normal move, not a mistake.',
+  },
+];
+
+export const StepGuide: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
+  const currentIdx = STEPS.findIndex(st => st.phase === b.phase);
+  const current = STEPS[currentIdx] ?? STEPS[0];
+  return (
+    <div className="shrink-0 rounded-lg border border-gray-300 bg-gray-50 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {STEPS.map((st, i) => (
+          <React.Fragment key={st.phase}>
+            <span
+              className={clsx(
+                'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold',
+                i === currentIdx
+                  ? 'bg-gray-900 text-white'
+                  : i < currentIdx
+                    ? 'bg-green-100 text-green-900 border border-green-300'
+                    : 'bg-white text-gray-400 border border-gray-300'
+              )}
+            >
+              <span
+                className={clsx(
+                  'inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px]',
+                  i === currentIdx
+                    ? 'bg-white text-gray-900'
+                    : i < currentIdx
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-200 text-gray-500'
+                )}
+              >
+                {i < currentIdx ? '\u2713' : st.n}
+              </span>
+              {st.title}
+            </span>
+            {i < STEPS.length - 1 && (
+              <ChevronRight size={12} className="text-gray-400 shrink-0" />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-gray-700">
+        <strong>
+          Step {current.n} of {STEPS.length} — {current.title}.
+        </strong>{' '}
+        {current.todo}
+      </p>
+    </div>
+  );
+};
 
 export const ScenarioHeader: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => (
   <div className="border-b pb-2 flex items-center justify-between gap-2">
@@ -136,82 +225,35 @@ export const ScenarioLockControls: React.FC<{ b: MitigationBudgetApi }> = ({ b }
       </p>
     )}
 
+    {/*
+      Only the scenario lock lives here. The back/continue buttons for the
+      later steps moved into PhaseNavControls, which is rendered beside the
+      thing it advances to — beta item 25: "the 'continue to benefits' button
+      should be closer to the actual benefits on the screen". It was in the
+      left column, under the map, while the benefits panel was in the right.
+
+      Sizes went up too (item 5: "make the lock and back button bigger so it
+      catches the eye"): these are the controls that move a team through the
+      exercise and they were the same weight as the help text above them.
+    */}
     <div className="flex flex-wrap gap-2">
       {!b.scenarioLocked ? (
         <button
           type="button"
           onClick={b.lockScenario}
-          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gray-900 text-white text-sm font-bold hover:bg-black"
+          className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-lg bg-gray-900 text-white text-base font-bold shadow-md hover:bg-black focus:outline-none focus-visible:ring-4 focus-visible:ring-gray-400"
         >
-          <Lock size={16} /> Lock scenario
+          <Lock size={20} /> Lock scenario
         </button>
       ) : (
-        <>
-          <button
-            type="button"
-            onClick={b.unlockScenario}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-800 hover:bg-gray-50"
-          >
-            <Unlock size={16} /> Unlock scenario
-          </button>
-          {b.phase === 'siting' && (
-            <>
-              <button
-                type="button"
-                onClick={b.unlockScenario}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-800 hover:bg-gray-50"
-                title="Back to Step 1 (unlock and clear placements/benefits)"
-              >
-                Back to scenario
-              </button>
-              <button
-                type="button"
-                onClick={b.continueFromSiting}
-                disabled={!b.canContinueFromSiting}
-                title={
-                  b.canContinueFromSiting
-                    ? 'Continue to mitigation'
-                    : b.sitingValidation.messages.join(' ') || 'Place all required facilities first'
-                }
-                className={clsx(
-                  'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold',
-                  b.canContinueFromSiting
-                    ? 'bg-gray-900 text-white hover:bg-black'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                )}
-              >
-                Continue to mitigation <ChevronRight size={16} />
-              </button>
-            </>
-          )}
-          {b.phase === 'mitigation' && (
-            <>
-              <button
-                type="button"
-                onClick={b.backFromMitigation}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-800 hover:bg-gray-50"
-              >
-                Back to siting
-              </button>
-              <button
-                type="button"
-                onClick={b.continueFromMitigation}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gray-900 text-white text-sm font-bold hover:bg-black"
-              >
-                Continue to benefits <ChevronRight size={16} />
-              </button>
-            </>
-          )}
-          {b.phase === 'benefits' && (
-            <button
-              type="button"
-              onClick={b.backFromBenefits}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg border border-gray-300 bg-white text-sm font-bold text-gray-800 hover:bg-gray-50"
-            >
-              Back to mitigation
-            </button>
-          )}
-        </>
+        <button
+          type="button"
+          onClick={b.unlockScenario}
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-3.5 rounded-lg border-2 border-gray-400 bg-white text-base font-bold text-gray-800 shadow-sm hover:bg-gray-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-gray-300"
+          title="Unlock Step 1 (clears placements and benefits)"
+        >
+          <Unlock size={20} /> Unlock scenario
+        </button>
       )}
     </div>
     {b.phase === 'siting' && !b.canContinueFromSiting && b.sitingValidation.messages.length > 0 && (
@@ -221,6 +263,86 @@ export const ScenarioLockControls: React.FC<{ b: MitigationBudgetApi }> = ({ b }
     )}
   </>
 );
+
+/**
+ * Back / continue for one step, rendered next to that step's own controls.
+ *
+ * `scope` picks which step's buttons to show, so siting's pair sits under the
+ * map and mitigation's and benefits' sit under the panels on the right. Beta
+ * items 25 and 32: the continue button was nowhere near the thing it
+ * continued to, and nobody realised they could go back to mitigation after
+ * looking at the benefits.
+ */
+export const PhaseNavControls: React.FC<{ b: MitigationBudgetApi; scope: WorkflowPhase }> = ({
+  b,
+  scope,
+}) => {
+  if (!b.scenarioLocked || b.phase !== scope) return null;
+
+  const backClass =
+    'flex-1 flex items-center justify-center gap-2 py-3.5 rounded-lg border-2 border-gray-400 bg-white text-base font-bold text-gray-800 shadow-sm hover:bg-gray-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-gray-300';
+  const fwdClass =
+    'flex-1 flex items-center justify-center gap-2 py-3.5 rounded-lg bg-gray-900 text-white text-base font-bold shadow-md hover:bg-black focus:outline-none focus-visible:ring-4 focus-visible:ring-gray-400';
+
+  return (
+    <div className="shrink-0 flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-2">
+        {scope === 'siting' && (
+          <>
+            <button
+              type="button"
+              onClick={b.unlockScenario}
+              className={backClass}
+              title="Back to Step 1 (unlock and clear placements/benefits)"
+            >
+              <ChevronLeft size={20} /> Back to scenario
+            </button>
+            <button
+              type="button"
+              onClick={b.continueFromSiting}
+              disabled={!b.canContinueFromSiting}
+              title={
+                b.canContinueFromSiting
+                  ? 'Continue to mitigation'
+                  : b.sitingValidation.messages.join(' ') || 'Place all required facilities first'
+              }
+              className={clsx(
+                'flex-1 flex items-center justify-center gap-2 py-3.5 rounded-lg text-base font-bold',
+                b.canContinueFromSiting
+                  ? 'bg-gray-900 text-white shadow-md hover:bg-black focus:outline-none focus-visible:ring-4 focus-visible:ring-gray-400'
+                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              )}
+            >
+              Continue to mitigation <ChevronRight size={20} />
+            </button>
+          </>
+        )}
+        {scope === 'mitigation' && (
+          <>
+            <button type="button" onClick={b.backFromMitigation} className={backClass}>
+              <ChevronLeft size={20} /> Back to siting
+            </button>
+            <button type="button" onClick={b.continueFromMitigation} className={fwdClass}>
+              Continue to benefits <ChevronRight size={20} />
+            </button>
+          </>
+        )}
+        {scope === 'benefits' && (
+          <button type="button" onClick={b.backFromBenefits} className={backClass}>
+            <ChevronLeft size={20} /> Back to mitigation — free up budget
+          </button>
+        )}
+      </div>
+      {scope === 'benefits' && (
+        <p className="text-[10px] text-gray-600 leading-snug">
+          Going back to Step 3 is a normal move. If a benefit the community asked for is out of
+          reach, lowering a mitigation allocation to afford it is a decision you are meant to be
+          able to make and defend — not a mistake you have to start over to undo.
+        </p>
+      )}
+    </div>
+  );
+};
 
 export const BudgetSummaryCard: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => (
   <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex flex-col items-center justify-center text-center shrink-0">
@@ -255,6 +377,19 @@ export const BudgetSummaryCard: React.FC<{ b: MitigationBudgetApi }> = ({ b }) =
     >
       {b.scenarioLocked ? 'Unassigned' : 'Available after lock'}: {formatCurrency(b.unassignedBudget)}
     </div>
+    {/*
+      Beta item 28: "add clarity on whether unassigned budget is profit (aka
+      whether they should be aiming for that)". The honest answer, and the one
+      the code actually implements: nothing scores it either way, but the
+      feasibility read-out names any community benefit you could have afforded
+      and did not fund. So it is money retained, and the retaining is visible.
+    */}
+    <p className="text-[10px] text-blue-900/80 mt-1 leading-snug max-w-md">
+      Unassigned money is not spent, and nothing in the model rewards leaving it. It is yours to
+      argue for as retained shareholder value — but the feasibility read-out names every benefit
+      the community asked for that this budget could have covered, so the choice not to spend is on
+      the record rather than hidden in a total.
+    </p>
     {b.scenarioLocked && b.sitingPenaltyUsd > 0 && (
       <>
         <div className="text-[11px] text-amber-800 font-semibold mt-1.5">
@@ -301,7 +436,7 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
           type="range"
           min={b.MITIGATION_SPEND_MIN_USD}
           max={b.WATER_SPEND_MAX_USD}
-          step={MITIGATION_STEP_USD}
+          step={MITIGATION_SLIDER_STEP_USD}
           value={b.allocWater}
           disabled={!active}
           onChange={e => b.applyWaterTarget(Number(e.target.value))}
@@ -338,7 +473,7 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
           type="range"
           min={b.MITIGATION_SPEND_MIN_USD}
           max={b.WASTE_SPEND_MAX_USD}
-          step={MITIGATION_STEP_USD}
+          step={MITIGATION_SLIDER_STEP_USD}
           value={b.allocWaste}
           disabled={!active}
           onChange={e => b.applyWasteTarget(Number(e.target.value))}
@@ -401,6 +536,11 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
             Air at the Old Town: see the ledger below
           </span>
         </div>
+        <div className="text-[10px] text-gray-500 leading-snug">
+          This slider moves in $2M steps while water and waste move in $250k steps, because control
+          equipment is bought as packages rather than by the dollar — a baghouse and a scrubber
+          train are each a yes or a no.
+        </div>
         {b.airAssurance > 0 && (
           <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-1 mt-1 leading-snug">
             Plus {formatCurrency(b.airAssurance)} operating assurance, charged to this budget.
@@ -417,16 +557,34 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         )}
       </div>
 
-      <LedgerPanel
-        mineSizeKm2={b.selectedSize.value}
-        capacityTPerYr={b.selectedCapacity.value}
-        waterMitigationSpendUsd={b.allocWater}
-        placedIndustrial={b.placedIndustrial}
-        airControlCapitalUsd={b.allocAir}
-      />
     </div>
   );
 };
+
+/**
+ * The ledgers, outside the disabled-slider wrapper on purpose.
+ *
+ * They used to be the last child of MitigationSlidersSection, which carries
+ * pointer-events-none outside Step 3. That was harmless while the panel was
+ * always open and purely a read-out. It stopped being harmless the moment the
+ * figures went behind a switch on 31 October 2026: a team at Step 4 could see
+ * three verdicts and had no way to open the numbers behind them, which is
+ * exactly when they would want to — benefits decide whether the haul fleet is
+ * electrified, and that moves the air ledger.
+ */
+export const LedgerSection: React.FC<{ b: MitigationBudgetApi; benefitIds?: string[] }> = ({
+  b,
+  benefitIds,
+}) => (
+  <LedgerPanel
+    mineSizeKm2={b.selectedSize.value}
+    capacityTPerYr={b.selectedCapacity.value}
+    waterMitigationSpendUsd={b.allocWater}
+    placedIndustrial={b.placedIndustrial}
+    airControlCapitalUsd={b.allocAir}
+    benefitIds={b.phase === 'benefits' ? benefitIds : undefined}
+  />
+);
 
 export const CommunityBenefitsSection: React.FC<{
   b: MitigationBudgetApi;
