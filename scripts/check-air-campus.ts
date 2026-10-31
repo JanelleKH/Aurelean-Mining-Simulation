@@ -38,6 +38,14 @@ import {
 } from '../src/data/noBuildAreas.ts';
 import { NO_BUILD_ZONE_RECTS, isPointInNoBuildZone } from '../src/components/map/noBuildZones.ts';
 import {
+  canPlaceIndustrialType,
+  getFacilityLimits,
+  validateIndustrialPlacementLocation,
+  validateIndustrialPlacements,
+} from '../src/data/industrialPlacementRules.ts';
+import { MIN_FACILITY_SEPARATION_KM } from '../src/data/mapScale.ts';
+import type { PlacedIndustrialSymbol } from '../src/components/map/mapSymbols.ts';
+import {
   computeAirLedger,
   computePostClosure,
   computeWasteLedger,
@@ -793,6 +801,134 @@ check('CLAIM B  and so does the ceiling',
   check('CLAIM C  and lands within one slider step of $1M',
     Math.abs(landed - 1_000_000) <= MITIGATION_SLIDER_STEP_USD,
     `off by $${Math.abs(landed - 1_000_000).toLocaleString()}`);
+}
+
+
+
+// ===========================================================================
+// FACILITY SITING RULES (31 October 2026)
+// ===========================================================================
+//
+// Beta items 23, 24, 26 and 29. Only extraction had any location rule, so the
+// cheapest play was to stack the entire industrial chain on one pixel of the
+// ore body: zero spread penalty, every emission source at a point, and no
+// siting decision taken at all.
+//
+// Pre-registered before writing the rules:
+//   CLAIM S1  A refinery on the ore body is refused; extraction there is not.
+//             Against: the refinery is accepted, or extraction is refused.
+//   CLAIM S2  Two facilities closer than 0.5 km: the second is refused.
+//             Against: accepted.
+//   CLAIM S3  Comfortably separated facilities are accepted. Against: refused,
+//             i.e. the buffer is so large it blocks ordinary layouts.
+//   CLAIM S4  A placed pin can be moved without colliding with itself.
+//             Against: a facility cannot be nudged once dropped.
+//   CLAIM S5  The whole chain stacked at one point fails export validation.
+//             Against: it passes, and the exploit survives.
+//   CLAIM S6  The top scenario needs 7 pins, not the 10 testers complained of.
+//             Against: still 10.
+
+console.log('\n=== FACILITY SITING RULES ===\n');
+
+// ORE_BODY_REGION is top 14, left 34, width 32, height 17 - so (50, 22) is
+// inside it and (50, 60) is well clear to the south.
+const ON_ORE = { x: 50, y: 22 };
+const OFF_ORE = { x: 50, y: 60 };
+
+const pin = (
+  id: string,
+  type: PlacedIndustrialSymbol['type'],
+  xPct: number,
+  yPct: number
+): PlacedIndustrialSymbol => ({ id, type, xPct, yPct });
+
+// --- CLAIM S1
+check('CLAIM S1  a refinery on the ore body is refused',
+  !validateIndustrialPlacementLocation('refining', ON_ORE.x, ON_ORE.y).ok,
+  validateIndustrialPlacementLocation('refining', ON_ORE.x, ON_ORE.y).message ?? 'accepted');
+check('CLAIM S1  and so is processing, and advanced manufacturing',
+  !validateIndustrialPlacementLocation('processing', ON_ORE.x, ON_ORE.y).ok &&
+    !validateIndustrialPlacementLocation('advanced_manufacturing', ON_ORE.x, ON_ORE.y).ok);
+check('CLAIM S1  but extraction on the ore body is fine',
+  validateIndustrialPlacementLocation('extraction', ON_ORE.x, ON_ORE.y).ok);
+
+// --- CLAIM S2 / S3: the separation buffer. 1% of this map is 0.1 km.
+{
+  const existing = [pin('a', 'refining', OFF_ORE.x, OFF_ORE.y)];
+  const tooClose = validateIndustrialPlacementLocation(
+    'processing', OFF_ORE.x + 2, OFF_ORE.y, existing
+  );
+  check('CLAIM S2  a second facility 0.2 km away is refused',
+    !tooClose.ok, tooClose.message ?? 'accepted');
+
+  const farEnough = validateIndustrialPlacementLocation(
+    'processing', OFF_ORE.x + 8, OFF_ORE.y, existing
+  );
+  check('CLAIM S3  one 0.8 km away is accepted',
+    farEnough.ok, farEnough.message ?? 'ok');
+  check(`CLAIM S3  and the buffer is the documented ${MIN_FACILITY_SEPARATION_KM} km`,
+    MIN_FACILITY_SEPARATION_KM === 0.5);
+}
+
+// --- CLAIM S4: a pin must be movable.
+{
+  const me = pin('me', 'refining', OFF_ORE.x, OFF_ORE.y);
+  const others = [pin('other', 'processing', OFF_ORE.x + 10, OFF_ORE.y)];
+  const nudged = validateIndustrialPlacementLocation('refining', OFF_ORE.x + 1, OFF_ORE.y, others);
+  check('CLAIM S4  a pin can be nudged when its own entry is excluded',
+    nudged.ok, nudged.message ?? 'ok');
+  const selfCollide = validateIndustrialPlacementLocation(
+    'refining', OFF_ORE.x + 1, OFF_ORE.y, [me, ...others]
+  );
+  check('CLAIM S4  and would collide with itself if it were not excluded',
+    !selfCollide.ok, 'confirms the exclusion in the move path is load-bearing');
+}
+
+// --- CLAIM S5: the stacking exploit.
+{
+  const scenario = { mineSizeKm2: 8, capacityMton: 5_000_000, facilityTier: 'advanced_manufacturing' as const };
+  const stacked: PlacedIndustrialSymbol[] = [
+    pin('e1', 'extraction', ON_ORE.x, ON_ORE.y),
+    pin('e2', 'extraction', ON_ORE.x, ON_ORE.y),
+    pin('e3', 'extraction', ON_ORE.x, ON_ORE.y),
+    pin('r1', 'refining', ON_ORE.x, ON_ORE.y),
+    pin('r2', 'refining', ON_ORE.x, ON_ORE.y),
+    pin('p1', 'processing', ON_ORE.x, ON_ORE.y),
+    pin('m1', 'advanced_manufacturing', ON_ORE.x, ON_ORE.y),
+  ];
+  const v = validateIndustrialPlacements(stacked, scenario);
+  check('CLAIM S5  the whole chain stacked on one point fails validation',
+    !v.ok, `${v.messages.length} message(s): ${v.messages[0] ?? ''}`);
+
+  const blocked = canPlaceIndustrialType(
+    'refining', [pin('e1', 'extraction', ON_ORE.x, ON_ORE.y)], scenario, ON_ORE.x, ON_ORE.y
+  );
+  check('CLAIM S5  and the drop is refused at the point of placement',
+    !blocked.ok, blocked.message ?? 'accepted');
+
+  // --- CLAIM S7: the rules must still leave a buildable layout, or Thursday
+  // breaks. Extraction within 1 km of the ore body, everything else off it,
+  // nothing within 0.5 km of anything else. The ore body spans x 34-66,
+  // y 14-31, so its southern edge is y=31 and 1 km is 10 units.
+  const buildable: PlacedIndustrialSymbol[] = [
+    pin('e1', 'extraction', 38, 22),
+    pin('e2', 'extraction', 50, 22),
+    pin('e3', 'extraction', 62, 22),
+    pin('r1', 'refining', 40, 40),
+    pin('r2', 'refining', 52, 40),
+    pin('p1', 'processing', 46, 52),
+    pin('m1', 'advanced_manufacturing', 58, 52),
+  ];
+  const good = validateIndustrialPlacements(buildable, scenario);
+  check('CLAIM S7  a full top-scenario layout still validates',
+    good.ok, good.messages.join(' | ') || 'clean');
+
+  // --- CLAIM S6
+  const limits = getFacilityLimits(scenario);
+  const total = limits.extraction + limits.refining + limits.processing + limits.advanced_manufacturing;
+  check('CLAIM S6  the top scenario needs 7 pins, down from 10',
+    total === 7,
+    `extraction ${limits.extraction} + refining ${limits.refining} + processing ${limits.processing} + adv mfg ${limits.advanced_manufacturing} = ${total}`);
 }
 
 

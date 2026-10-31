@@ -272,7 +272,10 @@ export const DraggableRegionalMap: React.FC<DraggableRegionalMapProps> = ({
       if (!canPlaceAt(x, y)) return;
       const sym = placedIndustrial.find(s => s.id === draggingId);
       if (sym) {
-        const locationCheck = validateIndustrialPlacementLocation(sym.type, x, y);
+        // Exclude the pin being moved from its own separation check, or a
+        // facility collides with itself and cannot be nudged at all.
+        const others = placedIndustrial.filter(s2 => s2.id !== draggingId);
+        const locationCheck = validateIndustrialPlacementLocation(sym.type, x, y, others);
         if (!locationCheck.ok) return;
       }
       setPlacedIndustrial(prev =>
