@@ -21,17 +21,9 @@ import {
   type LeverWeights,
 } from '../data/benefitLeverWeights';
 import { COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { BENEFIT_ID_ORDER, BENEFIT_VALUES, benefitValue } from '../data/benefitUtility';
 import type { CommunityBenefitId } from '../data/communityBenefits';
 
-export const BENEFIT_VALUES: Record<string, { cost: number; util: number }> = {
-  research: { cost: 5000000, util: 0.33 },
-  energy: { cost: 3000000, util: 0.27 },
-  canoe: { cost: 2500000, util: 0.2 },
-  irrigation: { cost: 900000, util: 0.13 },
-  park: { cost: 700000, util: 0.07 },
-};
-
-const BENEFIT_ID_ORDER = ['park', 'irrigation', 'canoe', 'energy', 'research'] as const;
 
 const BASE_UTIL_BY_ID: Record<string, number> = Object.fromEntries(
   Object.entries(BENEFIT_VALUES).map(([k, v]) => [k, v.util])
@@ -200,7 +192,7 @@ function generateBundleChartRows(weights: LeverWeights, includeEmpty: boolean) {
     }
     let cost = 0;
     for (const id of benefitIds) {
-      cost += BENEFIT_VALUES[id]?.cost ?? 0;
+      cost += benefitValue(id)?.cost ?? 0;
     }
     const utility = calculateWeightedBenefitUtility(benefitIds, BASE_UTIL_BY_ID, weights);
     rows.push({
@@ -220,7 +212,7 @@ export function calculateBenefitBundleMetrics(
 ) {
   let cost = 0;
   for (const id of benefitIds) {
-    const data = BENEFIT_VALUES[id];
+    const data = benefitValue(id);
     if (data) cost += data.cost;
   }
   const weights = getLeverWeightsForAllocations(

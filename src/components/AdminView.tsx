@@ -12,7 +12,11 @@ import {
   normalizeNoBuildId,
   validateNoGoZoneFeasibility,
 } from '../data/noBuildAreas';
-import { benefitCostUsd, getCommunityBenefit } from '../data/communityBenefits';
+import {
+  benefitCostUsd,
+  getCommunityBenefit,
+  normalizeBenefitId,
+} from '../data/communityBenefits';
 import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
 import { toAirSourcesFromRecords } from '../data/airSources';
 import {
@@ -83,7 +87,13 @@ const parseCSV = (text: string, type: 'community' | 'developer'): CommunityResul
       getCsvField(header, values, 'benefitsCount') || values[1] || '0'
     );
     const benefitIdsRaw = getCsvField(header, values, 'benefitIds') || values[2] || '';
-    const benefitIds = benefitIdsRaw ? benefitIdsRaw.split('|').map(id => id.trim()) : [];
+    // Normalised so CSVs exported before the 31 October 2026 ID rename still
+    // price and match correctly. Without this an old file would load with
+    // benefits that cost nothing and match nothing, which is worse than
+    // refusing to load it.
+    const benefitIds = benefitIdsRaw
+      ? benefitIdsRaw.split('|').map(id => normalizeBenefitId(id)).filter(Boolean)
+      : [];
     const consensusRaw =
       getCsvField(header, values, 'consensusAreaId') || values[3] || 'none';
     const consensusAreaIds = parseNoBuildIds(consensusRaw);
@@ -106,7 +116,7 @@ const parseCSV = (text: string, type: 'community' | 'developer'): CommunityResul
 
   const benefitIdsRaw = getCsvField(header, values, 'selected_benefits');
   const benefitIds = benefitIdsRaw
-    ? benefitIdsRaw.split('|').map(id => id.trim())
+    ? benefitIdsRaw.split('|').map(id => normalizeBenefitId(id))
     : [];
 
   const industrialRaw = getCsvField(header, values, 'industrial_placements', {

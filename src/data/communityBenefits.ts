@@ -1,6 +1,44 @@
 import { computeWaterLedger, computePostClosure } from '../model/index';
 
-export type CommunityBenefitId = 'park' | 'irrigation' | 'canoe' | 'energy' | 'research';
+/**
+ * Benefit IDs. These are what the CSVs carry, so they are a wire format.
+ *
+ * RENAMED 31 October 2026. Two of them used to be actively misleading: the
+ * Advanced Manufacturing Workforce Training benefit had the ID 'research',
+ * and the Energy Storage Research Program had the ID 'energy'. That is not a
+ * cosmetic problem. ELECTRIFICATION_REQUIRES was written as
+ * ['workforce', 'research'] by someone reading the labels, and since there was
+ * no benefit called 'workforce' the haul fleet could never be electrified at
+ * all - the mechanic was dead for the whole beta and nobody could see it.
+ *
+ * An ID that does not say what it names is a trap that will be walked into
+ * again, so they now say what they name. LEGACY_BENEFIT_IDS below keeps every
+ * CSV exported before today readable.
+ */
+export type CommunityBenefitId =
+  | 'park'
+  | 'irrigation'
+  | 'canoe'
+  | 'energy_storage'
+  | 'workforce';
+
+/**
+ * IDs written by builds before 31 October 2026, mapped to their current names.
+ *
+ * Normalise anything arriving from a CSV through normalizeBenefitId. Dropping
+ * this map would silently turn every beta export into a file whose benefits
+ * cost nothing and match nothing, which is worse than failing to load.
+ */
+export const LEGACY_BENEFIT_IDS: Record<string, CommunityBenefitId> = {
+  research: 'workforce',
+  energy: 'energy_storage',
+};
+
+/** A benefit ID as it is written today, from whatever a file happens to carry. */
+export function normalizeBenefitId(raw: string): string {
+  const trimmed = raw.trim();
+  return LEGACY_BENEFIT_IDS[trimmed] ?? trimmed;
+}
 
 export interface CommunityBenefit {
   id: CommunityBenefitId;
@@ -41,12 +79,13 @@ export const COMMUNITY_BENEFITS: CommunityBenefit[] = [
    * it is what a caller gets if it asks for a price without a scenario.
    */
   { id: 'canoe', label: 'Underground Canoe System', cost: 425000, deferredLiability: true },
-  { id: 'energy', label: 'Energy Storage Research Program', cost: 3000000 },
-  { id: 'research', label: 'Advanced Manufacturing Workforce Training', cost: 5000000 },
+  { id: 'energy_storage', label: 'Energy Storage Research Program', cost: 3000000 },
+  { id: 'workforce', label: 'Advanced Manufacturing Workforce Training', cost: 5000000 },
 ];
 
 export function getCommunityBenefit(id: string): CommunityBenefit | undefined {
-  return COMMUNITY_BENEFITS.find(b => b.id === id);
+  const wanted = normalizeBenefitId(id);
+  return COMMUNITY_BENEFITS.find(b => b.id === wanted);
 }
 
 /**
@@ -127,9 +166,14 @@ export function benefitCostUsd(
   id: string,
   scenario?: { mineSizeKm2: number; capacityTPerYr: number } | null,
 ): number {
-  const benefit = COMMUNITY_BENEFITS.find(b => b.id === id);
+  // Normalise first: this is called with IDs straight out of CSV files, and a
+  // beta export carries the pre-rename names. Looking up the raw string
+  // returned $0 for every benefit in an old file - priced at nothing, in the
+  // read-out that tells a developer what they failed to fund.
+  const wanted = normalizeBenefitId(id);
+  const benefit = COMMUNITY_BENEFITS.find(b => b.id === wanted);
   if (!benefit) return 0;
-  if (id !== 'canoe' || !scenario) return benefit.cost;
+  if (wanted !== 'canoe' || !scenario) return benefit.cost;
 
   const water = computeWaterLedger({
     mineSizeKm2: scenario.mineSizeKm2,

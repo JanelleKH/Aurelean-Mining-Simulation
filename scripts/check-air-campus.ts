@@ -19,7 +19,16 @@ import {
   clampMitigationLeverSpend,
   computeTotalBudget,
 } from '../src/data/mitigationConstants.ts';
-import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
+import {
+  benefitCostUsd,
+  canoeAvailability,
+  getCommunityBenefit,
+  COMMUNITY_BENEFITS,
+  LEGACY_BENEFIT_IDS,
+} from '../src/data/communityBenefits.ts';
+import { BENEFIT_LEVER_CATEGORY, weightForBenefitId } from '../src/data/benefitLeverWeights.ts';
+import { BENEFIT_DETAILS } from '../src/data/benefitDetails.ts';
+import { BENEFIT_VALUES } from '../src/data/benefitUtility.ts';
 import { ELECTRIFICATION_REQUIRES } from '../src/model/params.ts';
 import { NOMINAL_THROUGHPUT_T_PER_YR } from '../src/model/params.ts';
 import { advanceIntensityFactor } from '../src/model/hydrology.ts';
@@ -1173,6 +1182,100 @@ console.log('\n=== AIR AS THE COUNTERWEIGHT TO CLUSTERING ===\n');
   check('CLAIM C2  and it changes the verdict rather than only a decimal',
     clustered.pm25Verdict !== spread.pm25Verdict,
     `${clustered.pm25Verdict} -> ${spread.pm25Verdict}`);
+}
+
+
+
+// ===========================================================================
+// BENEFIT REGISTRY COMPLETENESS (31 October 2026)
+// ===========================================================================
+//
+// The generalisation of the bug that left the haul fleet unelectrifiable for
+// the whole beta: a benefit present in one registry and absent from another,
+// in silence. There are five registries and nothing previously required them
+// to agree - COMMUNITY_BENEFITS (label and price), BENEFIT_VALUES (chart cost
+// and utility), BENEFIT_LEVER_CATEGORY (which mitigation lever it answers to),
+// BENEFIT_DETAILS (picture and prose), and ELECTRIFICATION_REQUIRES.
+//
+// The IDs were renamed the same day, because two of them did not say what they
+// named: the Advanced Manufacturing Workforce Training benefit was called
+// 'research' and the Energy Storage Research Program was called 'energy'. An
+// ID that lies is a trap that gets walked into twice.
+//
+// Pre-registered:
+//   CLAIM R1  Every benefit ID appears in every registry. Against the claim:
+//             any gap, which is the shape of the electrification bug.
+//   CLAIM R2  Every ID named in ELECTRIFICATION_REQUIRES is a real benefit.
+//             This is the specific check that would have caught the original.
+//   CLAIM R3  Every legacy ID maps to a current one, and no legacy ID collides
+//             with a current one. Against: a CSV from the beta loads as a
+//             benefit that costs nothing and matches nothing.
+//   CLAIM R4  A legacy ID read from an old CSV still prices and categorises
+//             exactly as its renamed self. Against: beta exports silently
+//             lose their benefits in the admin read-out.
+//   CLAIM R5  No ID still carries a name that contradicts its label - the
+//             condition that caused the original.
+
+console.log('\n=== BENEFIT REGISTRY COMPLETENESS ===\n');
+
+{
+  const ids = COMMUNITY_BENEFITS.map(b => b.id);
+
+  const missingFrom = (keys: string[]) => ids.filter(id => !keys.includes(id));
+
+  const gaps: string[] = [];
+  for (const [name, keys] of [
+    ['BENEFIT_VALUES', Object.keys(BENEFIT_VALUES)],
+    ['BENEFIT_LEVER_CATEGORY', Object.keys(BENEFIT_LEVER_CATEGORY)],
+    ['BENEFIT_DETAILS', Object.keys(BENEFIT_DETAILS)],
+  ] as [string, string[]][]) {
+    const missing = missingFrom(keys);
+    const extra = keys.filter(k => !ids.includes(k as never));
+    if (missing.length) gaps.push(`${name} missing ${missing.join(', ')}`);
+    if (extra.length) gaps.push(`${name} has unknown ${extra.join(', ')}`);
+  }
+  check('CLAIM R1  every benefit appears in every registry',
+    gaps.length === 0, gaps.join(' | ') || `${ids.length} benefits x 3 registries, all present`);
+
+  const notReal = ELECTRIFICATION_REQUIRES.filter(r => !ids.includes(r));
+  check('CLAIM R2  every electrification requirement is a real benefit ID',
+    notReal.length === 0,
+    notReal.length ? `NOT A BENEFIT: ${notReal.join(', ')}` : ELECTRIFICATION_REQUIRES.join(' + '));
+
+  const legacyBad = Object.entries(LEGACY_BENEFIT_IDS).filter(
+    ([from, to]) => !ids.includes(to) || ids.includes(from as never)
+  );
+  check('CLAIM R3  every legacy ID maps onto a current one and collides with none',
+    legacyBad.length === 0,
+    legacyBad.length
+      ? legacyBad.map(([f, t]) => `${f}->${t}`).join(', ')
+      : Object.entries(LEGACY_BENEFIT_IDS).map(([f, t]) => `${f}->${t}`).join(', '));
+
+  // CLAIM R4 - an old CSV still works.
+  const legacyPricesMatch = Object.entries(LEGACY_BENEFIT_IDS).every(
+    ([old, now]) =>
+      getCommunityBenefit(old)?.id === now &&
+      benefitCostUsd(old) === benefitCostUsd(now) &&
+      weightForBenefitId(old, { water: 1, waste: 2, air: 3 }) ===
+        weightForBenefitId(now, { water: 1, waste: 2, air: 3 })
+  );
+  check('CLAIM R4  a benefit ID from a beta CSV still prices and categorises as itself',
+    legacyPricesMatch,
+    Object.keys(LEGACY_BENEFIT_IDS)
+      .map(o => `${o} -> $${(benefitCostUsd(o) / 1e6).toFixed(1)}M`)
+      .join(', '));
+
+  // CLAIM R5 - an ID should not contradict its own label.
+  const contradictions = COMMUNITY_BENEFITS.filter(b => {
+    const label = b.label.toLowerCase();
+    // Every ID word should show up somewhere in the label it names.
+    return !b.id.split('_').every(word => label.includes(word));
+  });
+  check('CLAIM R5  no benefit ID contradicts its own label',
+    contradictions.length === 0,
+    contradictions.length
+      ? contradictions.map(b => `${b.id} labelled "${b.label}"`).join('; ')
+      : COMMUNITY_BENEFITS.map(b => b.id).join(', '));
 }
 
 

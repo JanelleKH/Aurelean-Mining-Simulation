@@ -26,6 +26,7 @@
 import { computeAirLedger, computeWasteLedger, computeWaterLedger } from '../model/index';
 import { toAirSources } from '../data/airSources';
 import type { PlacedIndustrialSymbol } from './map/mapSymbols';
+import type { ReceptorReading } from './map/AirReceptorBadges';
 
 const AIR_TONE: Record<string, { chip: string; word: string }> = {
   within_guideline: { chip: 'bg-green-100 text-green-900 border-green-300', word: 'healthy' },
@@ -34,6 +35,43 @@ const AIR_TONE: Record<string, { chip: string; word: string }> = {
 };
 const RANK: Record<string, number> = { within_guideline: 0, within_limit: 1, exceeds_limit: 2 };
 const worse = (a: string, b: string) => ((RANK[a] ?? 0) >= (RANK[b] ?? 0) ? a : b);
+
+/**
+ * The receptor readings for this siting, or an empty list where nothing has
+ * been placed. Exported so the map can paint the same numbers over the same
+ * ground without computing the ledger a second time.
+ */
+export function airReadingsForSiting(input: {
+  mineSizeKm2: number;
+  capacityTPerYr: number;
+  placedIndustrial: readonly PlacedIndustrialSymbol[];
+}): ReceptorReading[] {
+  const sources = toAirSources(input.placedIndustrial);
+  if (sources.length === 0) return [];
+  const waste = computeWasteLedger({
+    mineSizeKm2: input.mineSizeKm2,
+    capacityTPerYr: input.capacityTPerYr,
+  });
+  const water = computeWaterLedger({
+    mineSizeKm2: input.mineSizeKm2,
+    capacityTPerYr: input.capacityTPerYr,
+    waterMitigationSpendUsd: 0,
+  });
+  return computeAirLedger({
+    sources,
+    capacityTPerYr: input.capacityTPerYr,
+    airControlCapitalUsd: 0,
+    disturbedHa: waste.footprint.totalDisturbedHa,
+    mineLifeYr: water.timing.mineLifeYr,
+  }).receptors.map(r => ({
+    id: r.id,
+    label: r.label,
+    pm10AnnualUgM3: r.pm10AnnualUgM3,
+    pm25AnnualUgM3: r.pm25AnnualUgM3,
+    pm10Verdict: r.pm10Verdict,
+    pm25Verdict: r.pm25Verdict,
+  }));
+}
 
 export interface AirAtSitingProps {
   mineSizeKm2: number;

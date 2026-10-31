@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { DraggableRegionalMap } from './map/DraggableRegionalMap';
-import { AirAtSiting } from './AirAtSiting';
+import { AirAtSiting, airReadingsForSiting } from './AirAtSiting';
 import type { PlacedIndustrialSymbol } from './map/mapSymbols';
 import { MapPin } from 'lucide-react';
 import { useMitigationBudgetV2 } from '../hooks/useMitigationBudgetV2';
@@ -39,6 +39,18 @@ export const DeveloperView: React.FC = () => {
     placedIndustrial,
   });
 
+  const airReadings = useMemo(
+    () =>
+      b.scenarioLocked
+        ? airReadingsForSiting({
+            mineSizeKm2: b.selectedSize.value,
+            capacityTPerYr: b.selectedCapacity.value,
+            placedIndustrial,
+          })
+        : [],
+    [b.scenarioLocked, b.selectedSize.value, b.selectedCapacity.value, placedIndustrial]
+  );
+
   return (
     <div className="flex-1 flex flex-col gap-3 min-h-0 overflow-hidden relative font-sans text-gray-900 h-full">
       <StepGuide b={b} />
@@ -62,6 +74,7 @@ export const DeveloperView: React.FC = () => {
             workflowPhase={b.phase}
             avgChainSpreadPct={b.avgChainSpreadPct}
             spreadPenaltyPct={b.spreadPenaltyPct}
+            airReadings={airReadings}
           />
           {/*
             The air consequence of this siting, shown while the siting is

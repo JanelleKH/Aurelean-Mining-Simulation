@@ -1,3 +1,4 @@
+import { normalizeBenefitId } from './communityBenefits';
 import type { CommunityBenefitId } from './communityBenefits';
 
 /** Spend rung (USD) → weight for utility scaling (no dollars enter the utility formula). */
@@ -28,8 +29,8 @@ export const BENEFIT_LEVER_CATEGORY: Record<CommunityBenefitId, 'water' | 'waste
   park: 'air',
   irrigation: 'water',
   canoe: 'water',
-  energy: 'waste',
-  research: 'waste',
+  energy_storage: 'waste',
+  workforce: 'waste',
 };
 
 export type LeverWeights = { water: number; waste: number; air: number };
@@ -84,7 +85,8 @@ export function weightForBenefitId(
   benefitId: string,
   weights: LeverWeights
 ): number {
-  const cat = BENEFIT_LEVER_CATEGORY[benefitId as CommunityBenefitId];
+  // Accepts IDs from builds before the 31 October 2026 rename.
+  const cat = BENEFIT_LEVER_CATEGORY[normalizeBenefitId(benefitId) as CommunityBenefitId];
   if (!cat) return 1;
   return weights[cat];
 }
@@ -100,7 +102,7 @@ export function calculateWeightedBenefitUtility(
 ): number {
   let sum = 0;
   for (const id of benefitIds) {
-    const base = baseUtilById[id];
+    const base = baseUtilById[normalizeBenefitId(id)];
     if (base == null) continue;
     sum += base * weightForBenefitId(id, weights);
   }

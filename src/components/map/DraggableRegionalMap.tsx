@@ -26,6 +26,7 @@ import {
 } from './mapGeometry';
 import { isPointInNoBuildZone } from './noBuildZones';
 import { NoBuildOverlays } from './NoBuildOverlays';
+import { AirReceptorBadges, type ReceptorReading } from './AirReceptorBadges';
 import { MapScaleBar } from './MapScaleBar';
 import {
   canPlaceIndustrialType,
@@ -53,6 +54,11 @@ export interface DraggableRegionalMapProps {
   placedIndustrial?: PlacedIndustrialSymbol[];
   onPlacedIndustrialChange?: (symbols: PlacedIndustrialSymbol[]) => void;
   selectedBenefits?: string[];
+  /**
+   * Live air readings to paint over the receptors. Passed in rather than
+   * computed here: the map draws, it does not model.
+   */
+  airReadings?: readonly ReceptorReading[];
   benefitPlacements?: Partial<Record<CommunityBenefitId, BenefitPlacement>>;
   unassignedBudget?: number;
   onBenefitPlace?: (id: CommunityBenefitId, xPct: number, yPct: number) => void;
@@ -82,6 +88,7 @@ export const DraggableRegionalMap: React.FC<DraggableRegionalMapProps> = ({
   placedIndustrial: placedIndustrialProp,
   onPlacedIndustrialChange,
   selectedBenefits = [],
+  airReadings,
   benefitPlacements = {},
   unassignedBudget = 0,
   onBenefitPlace,
@@ -493,6 +500,25 @@ export const DraggableRegionalMap: React.FC<DraggableRegionalMapProps> = ({
             />
 
             <NoBuildOverlays selectedNoBuildIds={selectedNoBuildIds} />
+
+            {/*
+              Air at the receptors, over the receptors. Inside the image-rect
+              wrapper so the percentages resolve against the map image rather
+              than the container, same rule as the scale bar.
+            */}
+            {airReadings && airReadings.length > 0 && imageRect.width > 0 && (
+              <div
+                className="absolute z-20 pointer-events-none"
+                style={{
+                  left: imageRect.left,
+                  top: imageRect.top,
+                  width: imageRect.width,
+                  height: imageRect.height,
+                }}
+              >
+                <AirReceptorBadges readings={airReadings} />
+              </div>
+            )}
 
             {imageRect.width > 0 && imageRect.height > 0 && (
               <div
