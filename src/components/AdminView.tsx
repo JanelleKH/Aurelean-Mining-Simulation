@@ -159,6 +159,19 @@ interface FeasibilityResult {
 /** $1,234,567 -> "$1.2M". Used only in blocker text. */
 const usdM = (n: number) => '$' + (n / 1e6).toFixed(1) + 'M';
 
+/**
+ * Production rate, in the units it is actually in.
+ *
+ * `capacity_mton` is named as though it were megatonnes and carries tonnes per
+ * year: the CSV writes 3000000 for a 3.0 Mt/yr plan. The read-out printed the
+ * raw number against the label "Mt capacity", so a facilitator reading the
+ * first line of the first card saw "3000000 Mt capacity" - a figure a million
+ * times too large, on the screen the whole room looks at. The field name is
+ * load-bearing in the CSV and across the model, so it stays; the formatting is
+ * fixed here instead.
+ */
+const mtPerYr = (tonnesPerYear: number) => `${(tonnesPerYear / 1e6).toFixed(1)} Mt/yr`;
+
 
 function benefitLabel(id: string): string {
   return getCommunityBenefit(id)?.label ?? id;
@@ -179,7 +192,7 @@ function buildFeasibilityAnalysis(
   const devSizeLabel = SIZE_LABELS[devSizeId] ?? `${developerData.size_km2} km²`;
 
   sizeDetails.push(
-    `Community voted for a ${communitySizeLabel} mine. Developer proposed ${devSizeLabel} (${developerData.size_km2} km²) at ${developerData.capacity_mton} Mt capacity.`
+    `Community voted for a ${communitySizeLabel} mine. Developer proposed ${devSizeLabel} at ${mtPerYr(developerData.capacity_mton)}.`
   );
 
   const commIndex = SIZE_INDICES[communityData.winnerId];
@@ -333,7 +346,7 @@ function buildFeasibilityAnalysis(
       kind: 'warn',
       section: 2,
       test: 'Mine life is plausible for the reserve (Taylor\u2019s rule)',
-      measured: `${waterLedger.timing.mineLifeYr.toFixed(1)} years at ${developerData.capacity_mton} Mt/yr`,
+      measured: `${waterLedger.timing.mineLifeYr.toFixed(1)} years at ${mtPerYr(developerData.capacity_mton)}`,
       threshold: `About ${waterLedger.timing.taylorLifeYr.toFixed(0)} years for a reserve of ${(wasteLedger.tonnage.oreMinedT / 1e6).toFixed(0)} Mt`,
       remedy: 'Lower the production rate or take a larger footprint. Nothing physical is broken here — it is a plan no lender would finance.',
     });

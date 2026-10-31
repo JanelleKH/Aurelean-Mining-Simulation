@@ -320,7 +320,9 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
             type="number"
             dataKey="cost"
             name="Cost"
-            unit="$"
+            // No `unit` prop: the tick formatter already writes the currency,
+            // and Recharts appends `unit` on top of it, which rendered every
+            // tick as "$0.0M$".
             tickFormatter={val => `$${(val / 1000000).toFixed(1)}M`}
             domain={[0, 20000000]}
           >
