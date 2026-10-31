@@ -461,6 +461,16 @@ export function useMitigationBudgetV2({
     sitingPenaltyUsd,
     waterReduction,
     wasteReduction,
+    // The curve's own terms, so the interface can show the arithmetic rather
+    // than only its result (beta items 9 and 31).
+    waterBaselineM3: W0,
+    waterFloorM3: Wmin,
+    wasteBaselineTon: S0,
+    wasteFloorTon: Smin,
+    ALPHA_W,
+    ALPHA_S,
+    K_W,
+    K_S,
     handleSizeChange,
     handleCapacityChange,
     handleFacilityChange,

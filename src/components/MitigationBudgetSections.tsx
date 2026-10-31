@@ -3,6 +3,7 @@ import {
   Droplets,
   Trash2,
   Wind,
+  Info,
   DollarSign,
   Download,
   Settings,
@@ -409,8 +410,84 @@ export const BudgetSummaryCard: React.FC<{ b: MitigationBudgetApi }> = ({ b }) =
   </div>
 );
 
+/**
+ * The arithmetic behind the three mitigation levers, behind a switch.
+ *
+ * Beta items 9 and 31 both asked for this, from two different testers: "toggle
+ * on the mathematics on the three factors of remediation" and "make
+ * mathematics of different mitigation strategies a toggle / info button". The
+ * sliders showed a dollar figure and a result with nothing between them, so
+ * the curve was something a team had to infer from dragging. Shown with the
+ * current numbers substituted, because an abstract formula answers a different
+ * question from the one being asked at the slider.
+ */
+const MathPanel: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
+  const waterM = b.allocWater / 1_000_000;
+  const wasteM = b.allocWaste / 1_000_000;
+  const n = (v: number) => formatNumber(Math.round(v));
+  return (
+    <div className="rounded-lg border border-gray-300 bg-gray-50 p-3 text-[11px] leading-snug text-gray-700">
+      <p className="mb-2">
+        Water and waste both follow the same shape: diminishing returns on money, down to a floor
+        that spending cannot pass. The first million buys far more than the fifth. Air does not use
+        this curve at all — it is equipment bought in packages, and where the facilities sit
+        matters more than what is spent on them.
+      </p>
+
+      <div className="mb-2">
+        <div className="font-bold text-blue-700">Water</div>
+        <code className="block font-mono text-[10px] text-gray-800">
+          final = floor + (baseline − floor) × e^(−{b.K_W} × $M)
+        </code>
+        <div className="mt-0.5">
+          baseline {n(b.waterBaselineM3)} m³ (set by production rate) · floor{' '}
+          {n(b.waterFloorM3)} m³ ({(b.ALPHA_W * 100).toFixed(0)}% of baseline, unreachable) ·
+          spending ${waterM.toFixed(2)}M
+          <br />
+          → {n(b.waterFloorM3)} + ({n(b.waterBaselineM3)} − {n(b.waterFloorM3)}) × e^(−
+          {(b.K_W * waterM).toFixed(2)}) = <strong>{n(b.targetWaterM3)} m³</strong> (
+          {b.waterReduction.toFixed(0)}% down)
+        </div>
+      </div>
+
+      <div className="mb-2">
+        <div className="font-bold text-orange-700">Waste</div>
+        <code className="block font-mono text-[10px] text-gray-800">
+          final = floor + (baseline − floor) × e^(−{b.K_S} × $M)
+        </code>
+        <div className="mt-0.5">
+          baseline {n(b.wasteBaselineTon)} t (set by mine size) · floor {n(b.wasteFloorTon)} t (
+          {(b.ALPHA_S * 100).toFixed(0)}% of baseline) · spending ${wasteM.toFixed(2)}M
+          <br />
+          → <strong>{n(b.targetWasteTon)} t</strong> ({b.wasteReduction.toFixed(0)}% down)
+        </div>
+      </div>
+
+      <div>
+        <div className="font-bold text-gray-800">Air</div>
+        <div className="mt-0.5">
+          No curve. Capital buys control equipment in packages; the regulator then requires three
+          years of running costs secured up front, at {(0.15 * 100).toFixed(0)}% of capital a year,
+          which is the assurance line above. What reaches the Old Town is computed from a Gaussian
+          plume — emissions by source, dispersed over the distance from each facility to each
+          receptor — and reported in the ledger below in µg/m³. Concentration falls with
+          roughly the square of distance, so moving a facility does more than the slider.
+        </div>
+      </div>
+
+      <p className="mt-2 text-gray-500">
+        These two curves are a calibrated convention rather than a measurement: they say money has
+        diminishing returns and cannot reach zero, which is true of real remediation, but the
+        particular numbers are chosen to make the trade-off playable. The water, waste and air
+        ledgers below are the physical model, and those are built from published parameters.
+      </p>
+    </div>
+  );
+};
+
 export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
   const active = b.phase === 'mitigation';
+  const [showMath, setShowMath] = React.useState(false);
   return (
     <div
       className={clsx(
@@ -418,6 +495,22 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         !active && 'opacity-50 pointer-events-none'
       )}
     >
+      <div className="flex items-center justify-between gap-2 -mb-2 pointer-events-auto">
+        <span className="text-xs font-bold text-gray-700">Mitigation allocations</span>
+        <button
+          type="button"
+          onClick={() => setShowMath(v => !v)}
+          aria-expanded={showMath}
+          className="flex items-center gap-1.5 rounded border border-gray-400 bg-white px-2 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+        >
+          <Info size={13} /> {showMath ? 'Hide the mathematics' : 'Show the mathematics'}
+        </button>
+      </div>
+      {showMath && (
+        <div className="pointer-events-auto">
+          <MathPanel b={b} />
+        </div>
+      )}
       {!active && (
         <p className="text-[10px] text-gray-500 font-medium -mb-2">
           {b.phase === 'scenario' || b.phase === 'siting'
@@ -615,6 +708,28 @@ export const CommunityBenefitsSection: React.FC<{
           }}
         />
       </div>
+
+      {/*
+        Beta item 35: "explicitly say how community benefits affect water level
+        etc." The honest answer is that most of them do not, and saying so is
+        more use than implying a link that is not in the model. Two benefits
+        touch the physical ledgers and they are named; the rest are real
+        commitments with real costs that change nothing in the water, waste or
+        air arithmetic.
+      */}
+      <p className="mt-1.5 text-[10px] leading-snug text-gray-600">
+        <strong>What these do to the ledgers.</strong> Two of them reach the physical model.{' '}
+        <span className="font-semibold">Workforce training and the energy storage programme,
+        together and only together</span>, electrify the haul fleet: that removes about 90% of the
+        diesel exhaust and almost none of the dust, because the dust is raised by the wheels and
+        the wheels keep turning. The <span className="font-semibold">underground canoe</span> runs
+        the other way — it changes nothing, but it can only be delivered if the workings leave a
+        navigable gallery and enough water is held back after closure, so the water and waste
+        decisions above determine whether it can be promised at all. The park, the irrigation
+        upgrade and the rest are commitments the community values and the budget pays for; they do
+        not move the water, waste or air figures.
+      </p>
+
       <div className="grid grid-cols-1 gap-1 mt-2">
         {COMMUNITY_BENEFITS.map(benefit => {
           const isSelected = selectedBenefits.includes(benefit.id);

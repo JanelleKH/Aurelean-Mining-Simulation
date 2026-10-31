@@ -597,5 +597,24 @@ export const WHO_GUIDELINE_PM25_ANNUAL_UG_M3 = 5;
  * fleet, the second the charging and storage it runs on. One without
  * the other does not deliver it.
  */
-export const ELECTRIFICATION_REQUIRES = ['workforce', 'research'] as const;
+/**
+ * The two community benefits that, together and only together, electrify the
+ * haul fleet.
+ *
+ * These are benefit IDs from src/data/communityBenefits.ts and they have to
+ * match it exactly. This read ['workforce', 'research'] until 31 October 2026,
+ * and 'workforce' is not a benefit ID - it appeared in this one line and
+ * nowhere else in the codebase. The pairing test is an `every`, so it could
+ * never be satisfied: the haul fleet could not be electrified under any
+ * selection, and the mechanic the briefings describe did nothing at all.
+ *
+ *   research = Advanced Manufacturing Workforce Training
+ *   energy   = Energy Storage Research Program
+ *
+ * The names are confusable in exactly the way that produced the bug - the
+ * workforce benefit is called 'research' and the research benefit is called
+ * 'energy' - so this comment is here to stop the next person "correcting" it
+ * back.
+ */
+export const ELECTRIFICATION_REQUIRES = ['research', 'energy'] as const;
 export const ELECTRIFICATION_DIESEL_REMOVED_FRACTION = 0.9;

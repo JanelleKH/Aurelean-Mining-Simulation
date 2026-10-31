@@ -20,6 +20,7 @@ import {
   computeTotalBudget,
 } from '../src/data/mitigationConstants.ts';
 import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
+import { ELECTRIFICATION_REQUIRES } from '../src/model/params.ts';
 import {
   GROUPS,
   SIZE_BALLOT,
@@ -261,17 +262,24 @@ console.log('');
 }
 
 // (h) Electrification cuts fine particulate without erasing coarse road dust.
+//
+// These two checks used to hardcode ['workforce', 'research'] - the same wrong
+// pair of IDs as ELECTRIFICATION_REQUIRES itself. They therefore passed while
+// the mechanic was entirely dead, because they were comparing the model to its
+// own mistake rather than to the benefit list. They now read the constant, and
+// CLAIM E1 further down is what pins that constant to the real benefit IDs. A
+// check that shares a fixture with the thing it tests proves nothing.
 {
   const off = ledger(SOUTH);
-  const on = ledger(SOUTH, 300_000, { benefitIds: ['workforce', 'research'] });
+  const on = ledger(SOUTH, 300_000, { benefitIds: [...ELECTRIFICATION_REQUIRES] });
   const cut = on.receptors[0].pm25AnnualUgM3 < off.receptors[0].pm25AnnualUgM3;
   const dustKept = on.receptors[0].pm10AnnualUgM3 > 0.5 * off.receptors[0].pm10AnnualUgM3;
   check('electrification cuts PM2.5 without erasing coarse road dust', cut && dustKept,
     `PM2.5 ${off.receptors[0].pm25AnnualUgM3.toFixed(1)} -> ${on.receptors[0].pm25AnnualUgM3.toFixed(1)}; PM10 ${off.receptors[0].pm10AnnualUgM3.toFixed(1)} -> ${on.receptors[0].pm10AnnualUgM3.toFixed(1)}`);
 }
 {
-  const one = ledger(SOUTH, 300_000, { benefitIds: ['workforce'] });
-  const both = ledger(SOUTH, 300_000, { benefitIds: ['workforce', 'research'] });
+  const one = ledger(SOUTH, 300_000, { benefitIds: [ELECTRIFICATION_REQUIRES[0]] });
+  const both = ledger(SOUTH, 300_000, { benefitIds: [...ELECTRIFICATION_REQUIRES] });
   check('electrification requires both benefits, not either',
     !one.inputs.electrified && both.inputs.electrified);
 }
@@ -929,6 +937,81 @@ check('CLAIM S1  but extraction on the ore body is fine',
   check('CLAIM S6  the top scenario needs 7 pins, down from 10',
     total === 7,
     `extraction ${limits.extraction} + refining ${limits.refining} + processing ${limits.processing} + adv mfg ${limits.advanced_manufacturing} = ${total}`);
+}
+
+
+
+// ===========================================================================
+// HAUL FLEET ELECTRIFICATION (31 October 2026)
+// ===========================================================================
+//
+// ELECTRIFICATION_REQUIRES read ['workforce', 'research']. 'workforce' is not
+// a benefit ID - it appeared in that one line and nowhere else in the
+// codebase - and the pairing test is an `every`, so it could never be
+// satisfied. The haul fleet could not be electrified under any selection and
+// the mechanic the briefings describe did nothing at all. The names are
+// confusable in exactly the way that produced it: the workforce benefit has
+// the ID 'research' and the research benefit has the ID 'energy'.
+//
+// Pre-registered before the fix, with the before-state measured first:
+//   CLAIM E1  Every ID in ELECTRIFICATION_REQUIRES is a real benefit ID. This
+//             is the check that would have caught the original. Against: an
+//             ID that matches nothing.
+//   CLAIM E2  Both benefits together electrify; either alone does not.
+//             Against: one alone is enough, or the pair is not.
+//   CLAIM E3  Electrifying cuts PM2.5 materially - diesel exhaust is fine
+//             particulate. Measured before the fix at 1.20 ug/m3 with the pair
+//             selected, i.e. unchanged. Against: no change, meaning the flag
+//             is set but unused.
+//   CLAIM E4  Electrifying barely moves PM10, because the dust is raised by
+//             the wheels and the wheels keep turning. This is the lesson the
+//             mechanic exists to teach, so it has to be visible in the
+//             numbers. Against: PM10 falls as much as PM2.5.
+
+console.log('\n=== HAUL FLEET ELECTRIFICATION ===\n');
+
+{
+  const ids = COMMUNITY_BENEFITS.map(b => b.id);
+  const missing = ELECTRIFICATION_REQUIRES.filter(r => !ids.includes(r));
+  check('CLAIM E1  every electrification requirement is a real benefit ID',
+    missing.length === 0,
+    missing.length ? `NOT A BENEFIT: ${missing.join(', ')}` : ELECTRIFICATION_REQUIRES.join(' + '));
+
+  const elecSources: AirSource[] = [
+    { kind: 'extraction', xPct: 50, yPct: 22 },
+    { kind: 'refining', xPct: 45, yPct: 42 },
+  ];
+  const air = (benefitIds: string[]) =>
+    computeAirLedger({
+      sources: elecSources,
+      capacityTPerYr: 3_000_000,
+      airControlCapitalUsd: 0,
+      disturbedHa: 120,
+      benefitIds,
+      mineLifeYr: 15,
+    });
+
+  const none = air([]);
+  const first = air([ELECTRIFICATION_REQUIRES[0]]);
+  const second = air([ELECTRIFICATION_REQUIRES[1]]);
+  const both = air([...ELECTRIFICATION_REQUIRES]);
+
+  check('CLAIM E2  both benefits together electrify the fleet', both.inputs.electrified);
+  check('CLAIM E2  and neither one alone does',
+    !first.inputs.electrified && !second.inputs.electrified && !none.inputs.electrified);
+
+  const pm25Before = none.receptors[0].pm25AnnualUgM3;
+  const pm25After = both.receptors[0].pm25AnnualUgM3;
+  const pm10Before = none.receptors[0].pm10AnnualUgM3;
+  const pm10After = both.receptors[0].pm10AnnualUgM3;
+  const pm25Drop = (1 - pm25After / pm25Before) * 100;
+  const pm10Drop = (1 - pm10After / pm10Before) * 100;
+
+  check('CLAIM E3  electrifying cuts PM2.5 by more than a tenth',
+    pm25Drop > 10, `${pm25Before.toFixed(2)} -> ${pm25After.toFixed(2)} ug/m3 (${pm25Drop.toFixed(0)}% down)`);
+  check('CLAIM E4  and barely moves PM10, because the wheels keep turning',
+    pm10Drop < pm25Drop / 2,
+    `${pm10Before.toFixed(2)} -> ${pm10After.toFixed(2)} ug/m3 (${pm10Drop.toFixed(0)}% down, against ${pm25Drop.toFixed(0)}% for PM2.5)`);
 }
 
 
