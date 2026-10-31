@@ -87,10 +87,11 @@ export type AirSource = { kind: AirSourceKind; xPct: number; yPct: number };
 
 /**
  * Distance from a map point to the nearest edge of a receptor, in metres.
- * Nearest edge rather than centroid because an EU limit value is assessed
- * where people are actually exposed — the first houses, not the middle of
- * the district. Zero inside the receptor, which is then floored for the
- * dispersion model, since a plume has no meaning at zero range.
+ *
+ * Kept for reporting — "nearest facility 400 m" is a useful thing to tell a
+ * team — but it is NO LONGER what concentrations are computed from. See
+ * receptorSamplePoints below for why measuring at the near edge inverted the
+ * answer for elevated releases.
  */
 export function distanceToReceptorM(xPct: number, yPct: number, rect: ReceptorRectPct): number {
   const nx = Math.max(rect.left, Math.min(xPct, rect.left + rect.width));
@@ -98,6 +99,69 @@ export function distanceToReceptorM(xPct: number, yPct: number, rect: ReceptorRe
   const dx = xPct - nx;
   const dy = yPct - ny;
   return Math.sqrt(dx * dx + dy * dy) * MAP_PCT_TO_M;
+}
+
+/** The point of a receptor closest to a source — where a ground-level plume bites. */
+export function nearestPointOnReceptor(
+  xPct: number,
+  yPct: number,
+  rect: ReceptorRectPct,
+): { xPct: number; yPct: number } {
+  return {
+    xPct: Math.max(rect.left, Math.min(xPct, rect.left + rect.width)),
+    yPct: Math.max(rect.top, Math.min(yPct, rect.top + rect.height)),
+  };
+}
+
+/** Straight-line distance between two map points, in metres. */
+export function pointDistanceM(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by) * MAP_PCT_TO_M;
+}
+
+/**
+ * A grid of sample points across a receptor, because a receptor is a PLACE and
+ * not a point on its own boundary.
+ *
+ * Added 31 October 2026. Concentration used to be computed at the nearest EDGE
+ * of a receptor, justified — correctly — on the grounds that a limit value is
+ * assessed where people are exposed, at the first houses rather than the middle
+ * of the district. That is right for a ground-level source.
+ *
+ * It is exactly wrong for an elevated one, and this file already said so a few
+ * functions down: the ground factor exp(-H^2 / 2 sigma_z^2) is near zero close
+ * to a tall stack, "which is why a chimney protects its neighbours and exports
+ * the problem downwind". Both comments were correct and together they produced
+ * a model that computed the protection and then measured only at the protected
+ * spot.
+ *
+ * The Old Town is 3.2 km by 2.7 km. For a 45 m stack the peak ground-level
+ * concentration lands about 800 m downwind, where sigma_z ~ H/sqrt(2). So a
+ * refinery 100 m off the northern edge was evaluated where its plume was still
+ * overhead — reported as contributing nothing — while its touchdown sat a
+ * third of the way into the town.
+ *
+ * Measured before this change, at 8 km2 and 5 Mt/yr: a refinery 0.1 km from the
+ * town edge gave PM2.5 1.6 ug/m3 at the Old Town, identical to having no
+ * refinery at all, and the same refinery 2.1 km away gave 5.4. The exercise was
+ * teaching that the way to protect a town's air is to build on its doorstep.
+ *
+ * Sampling the receptor and reporting its worst point is what an assessment
+ * does. 5 x 5 covers the corners, the edge midpoints and the centre.
+ */
+export function receptorSamplePoints(
+  rect: ReceptorRectPct,
+  n = 13,
+): { xPct: number; yPct: number }[] {
+  const pts: { xPct: number; yPct: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      pts.push({
+        xPct: rect.left + (rect.width * i) / (n - 1),
+        yPct: rect.top + (rect.height * j) / (n - 1),
+      });
+    }
+  }
+  return pts;
 }
 
 /* ------------------------------------------------------------------ *
@@ -463,17 +527,56 @@ export function computeAirLedger(input: {
       sources, capacityTPerYr, disturbedHa, electrified,
       dustEffectiveness: eff.dust, stackEffectiveness: eff.stack,
     });
-    let pm10 = 0;
-    let pm25 = 0;
-    for (const s of set) {
-      const d = distanceToReceptorM(s.xPct, s.yPct, rect);
-      const h = RELEASE_HEIGHT_M[s.kind] ?? 0;
-      pm10 += annualMeanConcentrationUgM3(s.pm10GPerS, d, h);
-      pm25 += annualMeanConcentrationUgM3(s.pm25GPerS, d, h);
-      // Dump and tailings dust spreads from an area, not a point.
-      pm10 += annualMeanAreaUgM3(s.areaPm10GPerS, d, disturbedHa);
+    // The worst value of EACH pollutant anywhere inside the receptor.
+    //
+    // The first version of this picked the single worst-affected point and
+    // reported both figures from it, on the reasoning that an independent
+    // maximum of each gives a pair of numbers that occur nowhere. That
+    // reasoning was wrong twice over.
+    //
+    // It is wrong legally: a limit value is breached if ANY point in the
+    // receptor exceeds it, pollutant by pollutant. Nobody claims the two
+    // maxima co-occur, and an assessment does not report them as if they did.
+    //
+    // It is wrong mechanically, which is what caught it: picking one point by
+    // a combined score lets the chosen point JUMP as control spending rises,
+    // because spending suppresses dust and stack emissions by different
+    // amounts and can switch which pollutant binds. A pre-registered check
+    // that concentration falls monotonically with spend then failed - the
+    // read-out could show PM10 RISING as a team spent more on controlling it,
+    // which is a fresh perverse incentive introduced while removing another.
+    //
+    // Each pollutant's maximum over the receptor is monotone in spend by
+    // construction, because every point's value is.
+    const worst = { pm10: 0, pm25: 0 };
+
+    // The grid alone is not enough. For a GROUND-LEVEL source the worst place
+    // is the nearest point of the receptor, and that point is rarely on a
+    // 5 x 5 grid - dropping it lost about a microgram of PM10 off the haul
+    // road, understating exactly the case the old nearest-edge rule got right.
+    // So the candidates are the grid plus, for every source, the point of the
+    // receptor closest to it.
+    const candidates = [
+      ...receptorSamplePoints(rect),
+      ...set.map(s => nearestPointOnReceptor(s.xPct, s.yPct, rect)),
+    ];
+
+    for (const pt of candidates) {
+      let pm10 = 0;
+      let pm25 = 0;
+      for (const s of set) {
+        const d = pointDistanceM(s.xPct, s.yPct, pt.xPct, pt.yPct);
+        const h = RELEASE_HEIGHT_M[s.kind] ?? 0;
+        pm10 += annualMeanConcentrationUgM3(s.pm10GPerS, d, h);
+        pm25 += annualMeanConcentrationUgM3(s.pm25GPerS, d, h);
+        // Dump and tailings dust spreads from an area, not a point.
+        pm10 += annualMeanAreaUgM3(s.areaPm10GPerS, d, disturbedHa);
+      }
+      if (pm10 > worst.pm10) worst.pm10 = pm10;
+      if (pm25 > worst.pm25) worst.pm25 = pm25;
     }
-    return { pm10, pm25 };
+
+    return worst;
   };
 
   const receptors: ReceptorAir[] = receptorDefs.map(rect => {

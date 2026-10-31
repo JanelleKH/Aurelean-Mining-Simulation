@@ -970,14 +970,20 @@ check('CLAIM S1  but extraction on the ore body is fine',
 //             ID that matches nothing.
 //   CLAIM E2  Both benefits together electrify; either alone does not.
 //             Against: one alone is enough, or the pair is not.
-//   CLAIM E3  Electrifying cuts PM2.5 materially - diesel exhaust is fine
-//             particulate. Measured before the fix at 1.20 ug/m3 with the pair
-//             selected, i.e. unchanged. Against: no change, meaning the flag
-//             is set but unused.
-//   CLAIM E4  Electrifying barely moves PM10, because the dust is raised by
-//             the wheels and the wheels keep turning. This is the lesson the
-//             mechanic exists to teach, so it has to be visible in the
-//             numbers. Against: PM10 falls as much as PM2.5.
+//   CLAIM E3  Where the haul fleet is the dominant source, electrifying cuts
+//             PM2.5 by a fifth or more - diesel exhaust is fine particulate.
+//             Against: no material change, meaning the flag is set but unused.
+//   CLAIM E4  In the same case it barely moves PM10, because the dust is
+//             raised by the wheels and the wheels keep turning. This is the
+//             lesson the mechanic exists to teach. Against: PM10 falls as
+//             much as PM2.5.
+//   CLAIM E5  Added 31 October after receptors became areas. Where tall stacks
+//             dominate the binding exposure, electrification matters much
+//             less, because it does nothing about a plume touching down from a
+//             45 m stack. That is a real result and worth a community knowing:
+//             the benefit is worth more against some plans than others.
+//             Against: the stack case cuts PM2.5 as much as the haul case,
+//             which would mean the source split is not doing anything.
 
 console.log('\n=== HAUL FLEET ELECTRIFICATION ===\n');
 
@@ -988,15 +994,25 @@ console.log('\n=== HAUL FLEET ELECTRIFICATION ===\n');
     missing.length === 0,
     missing.length ? `NOT A BENEFIT: ${missing.join(', ')}` : ELECTRIFICATION_REQUIRES.join(' + '));
 
+  // Haul-dominant: two pits north of the town, no stacks at all. The old
+  // fixture put a refinery at (45, 42), which is INSIDE the Old Town rectangle
+  // - fine while concentration was read at the town's edge, meaningless once
+  // the receptor became an area.
   const elecSources: AirSource[] = [
-    { kind: 'extraction', xPct: 50, yPct: 22 },
-    { kind: 'refining', xPct: 45, yPct: 42 },
+    { kind: 'extraction', xPct: 46, yPct: 30 },
+    { kind: 'extraction', xPct: 52, yPct: 30 },
+  ];
+  // Stack-dominant: the same pits plus refining and processing well away.
+  const stackSources: AirSource[] = [
+    ...elecSources,
+    { kind: 'refining', xPct: 46, yPct: 14 },
+    { kind: 'processing', xPct: 60, yPct: 16 },
   ];
   const air = (benefitIds: string[]) =>
     computeAirLedger({
       sources: elecSources,
       capacityTPerYr: 3_000_000,
-      airControlCapitalUsd: 0,
+      airControlCapitalUsd: 300_000,
       disturbedHa: 120,
       benefitIds,
       mineLifeYr: 15,
@@ -1018,11 +1034,28 @@ console.log('\n=== HAUL FLEET ELECTRIFICATION ===\n');
   const pm25Drop = (1 - pm25After / pm25Before) * 100;
   const pm10Drop = (1 - pm10After / pm10Before) * 100;
 
-  check('CLAIM E3  electrifying cuts PM2.5 by more than a tenth',
-    pm25Drop > 10, `${pm25Before.toFixed(2)} -> ${pm25After.toFixed(2)} ug/m3 (${pm25Drop.toFixed(0)}% down)`);
+  check('CLAIM E3  with the haul fleet dominant, electrifying cuts PM2.5 by a fifth or more',
+    pm25Drop >= 20, `${pm25Before.toFixed(2)} -> ${pm25After.toFixed(2)} ug/m3 (${pm25Drop.toFixed(0)}% down)`);
   check('CLAIM E4  and barely moves PM10, because the wheels keep turning',
     pm10Drop < pm25Drop / 2,
     `${pm10Before.toFixed(2)} -> ${pm10After.toFixed(2)} ug/m3 (${pm10Drop.toFixed(0)}% down, against ${pm25Drop.toFixed(0)}% for PM2.5)`);
+
+  // CLAIM E5 - the same benefit, against a plan whose exposure is stack-driven.
+  const stackAir = (benefitIds: string[]) =>
+    computeAirLedger({
+      sources: stackSources,
+      capacityTPerYr: 3_000_000,
+      airControlCapitalUsd: 300_000,
+      disturbedHa: 120,
+      benefitIds,
+      mineLifeYr: 15,
+    }).receptors[0];
+  const sOff = stackAir([]);
+  const sOn = stackAir([...ELECTRIFICATION_REQUIRES]);
+  const stackDrop = (1 - sOn.pm25AnnualUgM3 / sOff.pm25AnnualUgM3) * 100;
+  check('CLAIM E5  but matters much less where tall stacks drive the exposure',
+    stackDrop < pm25Drop,
+    `${stackDrop.toFixed(0)}% down with stacks present, against ${pm25Drop.toFixed(0)}% without - electrifying trucks does nothing about a plume from a 45 m stack`);
 }
 
 
@@ -1276,6 +1309,114 @@ console.log('\n=== BENEFIT REGISTRY COMPLETENESS ===\n');
     contradictions.length
       ? contradictions.map(b => `${b.id} labelled "${b.label}"`).join('; ')
       : COMMUNITY_BENEFITS.map(b => b.id).join(', '));
+}
+
+
+
+// ===========================================================================
+// A RECEPTOR IS A PLACE, NOT A POINT ON ITS BOUNDARY (31 October 2026)
+// ===========================================================================
+//
+// Concentration was computed at the nearest EDGE of a receptor, justified on
+// the grounds that a limit value is assessed where people are exposed - the
+// first houses, not the middle of the district. That is right for a
+// ground-level source and exactly wrong for an elevated one, and this file
+// already said why a few functions down: the ground factor is near zero close
+// to a tall stack, "which is why a chimney protects its neighbours and exports
+// the problem downwind". The model computed the protection and then measured
+// only at the protected spot.
+//
+// The Old Town is 3.2 x 2.7 km. For a 45 m stack the peak ground-level
+// concentration lands about 800 m downwind (sigma_z ~ H/sqrt2), so a refinery
+// 100 m off the northern edge put its touchdown a third of the way into the
+// town while reporting clean air at the edge. With 50 to 90 participants on
+// Thursday, somebody finds that.
+//
+// Pre-registered, from the dispersion equations BEFORE the fixed model was
+// run - peak at ~800 m, so a stack on the town wall drops its load inside the
+// town and a stack 2 km out drops it short of the town:
+//   CLAIM P1  A refinery 0.1 km from the town edge must read HIGHER PM2.5 at
+//             the Old Town than the same refinery 2.2 km away. Against the
+//             claim: the near one still reads cleaner, the diagnosis is wrong,
+//             and the change is reverted rather than patched around.
+//   CLAIM P2  REVISED after the first run, and the revision is the physics
+//             rather than a loosened bar. Strict monotonicity was the wrong
+//             claim: while the touchdown sits INSIDE the town, the worst point
+//             in the town IS the peak, and the peak barely cares exactly where
+//             the stack is. So the near zone is a plateau, not a slope, and it
+//             ripples by a few percent depending on which sample point lands
+//             nearest the peak. Refining the grid from 5x5 to 17x17 does not
+//             remove the ripple, which is how the plateau was identified as
+//             real rather than an artifact.
+//             The two claims that matter are therefore: beyond the touchdown
+//             distance, further away is always better; and the whole near
+//             plateau sits far above the far field, so there is nothing worth
+//             climbing. Against: a rise beyond 1 km, or a near plateau that
+//             comes close to the far-field value.
+//   CLAIM P3  A ground-level source still bites hardest at the nearest point -
+//             the grid alone would miss it, so the candidate set includes each
+//             source's closest point on the receptor. Against: moving a haul
+//             road nearer leaves the reading unchanged or lowers it.
+
+console.log('\n=== A RECEPTOR IS A PLACE, NOT A POINT ===\n');
+
+{
+  const wl = computeWasteLedger({ mineSizeKm2: 8, capacityTPerYr: 5_000_000 });
+  const life = computeWaterLedger({
+    mineSizeKm2: 8, capacityTPerYr: 5_000_000, waterMitigationSpendUsd: 0,
+  }).timing.mineLifeYr;
+  const oreBody: AirSource[] = [
+    { kind: 'extraction', xPct: 42, yPct: 20 },
+    { kind: 'extraction', xPct: 50, yPct: 20 },
+    { kind: 'extraction', xPct: 58, yPct: 20 },
+  ];
+  const oldTown = (extra: AirSource[]) =>
+    computeAirLedger({
+      sources: [...oreBody, ...extra],
+      capacityTPerYr: 5_000_000,
+      airControlCapitalUsd: 0,
+      disturbedHa: wl.footprint.totalDisturbedHa,
+      mineLifeYr: life,
+    }).receptors[0];
+
+  // The Old Town spans y 35..62. A refinery at y=34 sits 0.1 km off its edge.
+  const against = oldTown([{ kind: 'refining', xPct: 46, yPct: 34 }]);
+  const away = oldTown([{ kind: 'refining', xPct: 46, yPct: 13 }]);
+
+  check('CLAIM P1  a refinery on the town wall reads WORSE than one 2.2 km out',
+    against.pm25AnnualUgM3 > away.pm25AnnualUgM3,
+    `0.1 km ${against.pm25AnnualUgM3.toFixed(1)} vs 2.2 km ${away.pm25AnnualUgM3.toFixed(1)} ug/m3 PM2.5 (was 1.6 vs 5.4, the wrong way round)`);
+
+  // CLAIM P2 - beyond the touchdown distance, further is always better.
+  const far = [25, 20, 16, 13, 10, 6, 3].map(y => ({
+    gapKm: (35 - y) / 10,
+    pm25: oldTown([{ kind: 'refining', xPct: 46, yPct: y }]).pm25AnnualUgM3,
+  }));
+  const rises = far.filter((w, i) => i > 0 && w.pm25 > far[i - 1].pm25 + 1e-9);
+  check('CLAIM P2  beyond 1 km, moving the refinery away always helps',
+    rises.length === 0,
+    far.map(w => `${w.gapKm.toFixed(1)}km:${w.pm25.toFixed(1)}`).join('  '));
+
+  // ...and the near plateau is nowhere near the far field, so the ripple
+  // inside it is not a gradient anybody would bother to climb.
+  const near = [34, 33, 32, 30, 28].map(y =>
+    oldTown([{ kind: 'refining', xPct: 46, yPct: y }]).pm25AnnualUgM3
+  );
+  const nearBest = Math.min(...near);
+  const farValue = far[far.length - 1].pm25;
+  check('CLAIM P2  the best spot against the town wall is still far worse than leaving',
+    nearBest > 1.8 * farValue,
+    `best near ${nearBest.toFixed(1)} vs ${far[far.length - 1].gapKm.toFixed(1)} km away ${farValue.toFixed(1)} ug/m3 — ${(nearBest / farValue).toFixed(1)}x`);
+  check('CLAIM P2  and the ripple within the near plateau is under a tenth',
+    (Math.max(...near) - nearBest) / nearBest < 0.1,
+    `plateau ${nearBest.toFixed(2)}–${Math.max(...near).toFixed(2)} ug/m3`);
+
+  // CLAIM P3 - the ground-level case must not have been softened.
+  const roadFar = oldTown([{ kind: 'extraction', xPct: 46, yPct: 20 }]).pm10AnnualUgM3;
+  const roadNear = oldTown([{ kind: 'extraction', xPct: 46, yPct: 34 }]).pm10AnnualUgM3;
+  check('CLAIM P3  a ground-level source still bites hardest up close',
+    roadNear > roadFar,
+    `extraction 0.1 km from the town ${roadNear.toFixed(1)} vs 1.5 km away ${roadFar.toFixed(1)} ug/m3 PM10`);
 }
 
 
