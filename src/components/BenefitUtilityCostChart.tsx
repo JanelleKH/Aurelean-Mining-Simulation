@@ -9,7 +9,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  Legend,
   Label,
   Cell,
 } from 'recharts';
@@ -306,7 +305,7 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
         budget. The orange line is the budget. Black ring = the community&apos;s current selection.
       </p>
       <ResponsiveContainer width="100%" height="85%">
-        <ScatterChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+        <ScatterChart margin={{ top: 12, right: 12, bottom: 28, left: 12 }}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             type="number"
@@ -318,7 +317,7 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
             tickFormatter={val => `$${(val / 1000000).toFixed(1)}M`}
             domain={[0, 20000000]}
           >
-            <Label value="Community benefit cost ($)" offset={-8} position="insideBottom" />
+            <Label value="Community benefit cost ($)" offset={-18} position="insideBottom" />
           </XAxis>
           <YAxis type="number" dataKey="utility" name="Utility" domain={[0, 'auto']}>
             <Label value="Weighted utility" angle={-90} position="insideLeft" />
@@ -342,7 +341,6 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
               return null;
             }}
           />
-          <Legend />
           <Scatter name="Benefit bundles" data={chartData} fill={MARK_BLUE}>
             {chartData.map((entry, index) => (
               <Cell
