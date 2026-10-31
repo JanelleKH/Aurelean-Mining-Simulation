@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { DraggableRegionalMap } from './map/DraggableRegionalMap';
+import { AirAtSiting } from './AirAtSiting';
 import type { PlacedIndustrialSymbol } from './map/mapSymbols';
 import { MapPin } from 'lucide-react';
 import { useMitigationBudgetV2 } from '../hooks/useMitigationBudgetV2';
@@ -62,6 +63,20 @@ export const DeveloperView: React.FC = () => {
             avgChainSpreadPct={b.avgChainSpreadPct}
             spreadPenaltyPct={b.spreadPenaltyPct}
           />
+          {/*
+            The air consequence of this siting, shown while the siting is
+            happening. The spread penalty is in dollars and immediate; without
+            this the air cost was in micrograms and two steps away, so teams
+            clustered on the ore body - which sits directly north of the Old
+            Town and is the worst ground for air on the map.
+          */}
+          {b.scenarioLocked && (
+            <AirAtSiting
+              mineSizeKm2={b.selectedSize.value}
+              capacityTPerYr={b.selectedCapacity.value}
+              placedIndustrial={placedIndustrial}
+            />
+          )}
           {/* Siting's nav belongs under the map, which is what it acts on. */}
           <PhaseNavControls b={b} scope="siting" />
         </div>

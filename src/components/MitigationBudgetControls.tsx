@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useMitigationBudgetV2, type JointExportExtras } from '../hooks/useMitigationBudgetV2';
 import type { MineSize, Capacity, AirTierId } from '../data/mitigationConstants';
 import type { PlacedIndustrialSymbol } from './map/mapSymbols';
+import { AirAtSiting } from './AirAtSiting';
 import {
   ScenarioHeader,
   ScenarioDropdowns,
@@ -119,6 +120,13 @@ export const MitigationBudgetControls: React.FC<MitigationBudgetControlsProps> =
         stacked Joint layout was left with a lock button and no way forward.
         Each nav sits under the section it governs, same as in DeveloperView.
       */}
+      {b.scenarioLocked && (
+        <AirAtSiting
+          mineSizeKm2={b.selectedSize.value}
+          capacityTPerYr={b.selectedCapacity.value}
+          placedIndustrial={placedIndustrial}
+        />
+      )}
       <PhaseNavControls b={b} scope="siting" />
       <BudgetSummaryCard b={b} />
       <MitigationSlidersSection b={b} />

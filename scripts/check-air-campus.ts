@@ -1110,5 +1110,71 @@ console.log('\n=== PRODUCTION RATE AND WATER ===\n');
 }
 
 
+
+// ===========================================================================
+// DOES SHOWING AIR AT SITING ACTUALLY BITE? (31 October 2026)
+// ===========================================================================
+//
+// Beta items 24 and 26 read as "the model needs another penalty against
+// clustering". It does not. The counter-force is already there and is
+// physically real - concentration falls with roughly the square of distance -
+// but it was reported two steps later, in micrograms, behind a switch, while
+// the cost of spreading was immediate and in dollars. One side of the
+// trade-off was shouting and the other whispering.
+//
+// Showing it at siting only works if the numbers visibly move when a team
+// moves a pin. If they barely move, the panel is decoration and the honest
+// thing is to say so and find another answer.
+//
+// Pre-registered:
+//   CLAIM C1  Pushing the plant away from the Old Town materially improves the
+//             air there - PM2.5 falls by at least a third. Against the claim:
+//             a difference too small to act on, meaning the panel will not
+//             change behaviour and something else is needed.
+//   CLAIM C2  The difference crosses a threshold, so the verdict WORD changes
+//             and not just a decimal. Against: both sitings read the same.
+
+console.log('\n=== AIR AS THE COUNTERWEIGHT TO CLUSTERING ===\n');
+
+{
+  const w = computeWasteLedger({ mineSizeKm2: 4, capacityTPerYr: 3_000_000 });
+  const life = computeWaterLedger({
+    mineSizeKm2: 4,
+    capacityTPerYr: 3_000_000,
+    waterMitigationSpendUsd: 0,
+  }).timing.mineLifeYr;
+  const at = (sources: AirSource[]) =>
+    computeAirLedger({
+      sources,
+      capacityTPerYr: 3_000_000,
+      airControlCapitalUsd: 0,
+      disturbedHa: w.footprint.totalDisturbedHa,
+      mineLifeYr: life,
+    }).receptors[0];
+
+  // Ore body spans x 34-66, y 14-31; the Old Town receptor x 30-62, y 35-62.
+  const clustered = at([
+    { kind: 'extraction', xPct: 50, yPct: 24 },
+    { kind: 'extraction', xPct: 56, yPct: 24 },
+    { kind: 'refining', xPct: 50, yPct: 30 },
+    { kind: 'processing', xPct: 56, yPct: 30 },
+  ]);
+  const spread = at([
+    { kind: 'extraction', xPct: 50, yPct: 24 },
+    { kind: 'extraction', xPct: 56, yPct: 24 },
+    { kind: 'refining', xPct: 14, yPct: 8 },
+    { kind: 'processing', xPct: 20, yPct: 8 },
+  ]);
+
+  const drop = (1 - spread.pm25AnnualUgM3 / clustered.pm25AnnualUgM3) * 100;
+  check('CLAIM C1  moving the plant off the ore body cuts PM2.5 at the Old Town by a third or more',
+    drop >= 33,
+    `${clustered.pm25AnnualUgM3.toFixed(1)} -> ${spread.pm25AnnualUgM3.toFixed(1)} ug/m3 (${drop.toFixed(0)}% down), nearest source ${Math.round(clustered.nearestSourceM)} -> ${Math.round(spread.nearestSourceM)} m`);
+  check('CLAIM C2  and it changes the verdict rather than only a decimal',
+    clustered.pm25Verdict !== spread.pm25Verdict,
+    `${clustered.pm25Verdict} -> ${spread.pm25Verdict}`);
+}
+
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}\n`);
 process.exit(failures === 0 ? 0 : 1);
