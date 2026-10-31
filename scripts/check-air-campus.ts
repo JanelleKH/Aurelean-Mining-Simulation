@@ -16,6 +16,17 @@ import {
 } from '../src/data/mitigationConstants.ts';
 import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
 import {
+  GROUPS,
+  SIZE_BALLOT,
+  preferredSizeLabel,
+  resolveCommunityWinner,
+  resolveStageOne,
+  tallySizeVotes,
+  type GroupId,
+  type MineSizeId,
+  type MineStance,
+} from '../src/data/communityVote.ts';
+import {
   NO_BUILD_AREAS,
   normalizeNoBuildId,
   getNoBuildAreaLabel,
@@ -449,6 +460,181 @@ for (const km2 of [1, 2, 4]) {
   check(`the canoe CAN be selected at ${km2} km2`,
     canoeAvailability({ mineSizeKm2: km2, capacityTPerYr: 3_000_000 }).deliverable);
 }
+
+
+// ===========================================================================
+// THE TWO-STAGE COMMUNITY VOTE (31 October 2026)
+// ===========================================================================
+//
+// Beta testers could not read the old ballot. Two faults, both structural:
+//
+//   1. "Oppose Mine" sat in the size list as a sixth option scored 0-5 like the
+//      others, so whether to mine and how big to mine were added on one scale.
+//   2. A zero contributed nothing to a sum, so "two groups find 8 km2
+//      unacceptable" and "two groups left that row alone" looked identical.
+//
+// Pre-registered, before running any of this. These are the claims; each line
+// says which way the result would have to fall to go against them.
+//
+//   CLAIM 1  Silence is not consent. One group accepting while four hold no
+//            view must NOT approve a mine. Against the claim: winner is a size.
+//   CLAIM 2  Three of five accepting approves, whatever the other two do.
+//            Against: winner is null or 'oppose'.
+//   CLAIM 3  An unsettled vote is reported as unsettled, not as opposition.
+//            Against: resolveCommunityWinner returns 'oppose' on 2-1-2.
+//   CLAIM 4  A majority refusing, or everyone answering without a majority
+//            accepting, yields 'oppose'. Against: returns null or a size.
+//   CLAIM 5  Opposition never depends on the size scores. A refusing community
+//            with every size scored 5 still exports 'oppose'. Against: a size.
+//   CLAIM 6  A zero is counted and reported as a refusal of that size.
+//            Against: refusals stays at 0 where groups scored 0.
+//   CLAIM 7  No group holds a veto: the highest total wins even when other
+//            groups called it unacceptable. Against: a refused size cannot win.
+//   CLAIM 8  A group scoring every size zero reads as "none acceptable", not
+//            as a blank. Against: the label is '-' or a size.
+
+console.log('\n=== TWO-STAGE COMMUNITY VOTE ===\n');
+
+const stancesOf = (spec: Partial<Record<GroupId, MineStance>>) => {
+  const out = {} as Record<GroupId, MineStance>;
+  GROUPS.forEach(g => {
+    out[g.id] = spec[g.id] ?? 'abstain';
+  });
+  return out;
+};
+
+const votesOf = (perGroup: Partial<Record<GroupId, Partial<Record<MineSizeId, number>>>>) => {
+  const out = {} as Record<GroupId, Record<MineSizeId, number>>;
+  GROUPS.forEach(g => {
+    out[g.id] = {} as Record<MineSizeId, number>;
+    SIZE_BALLOT.forEach(m => {
+      out[g.id][m.id] = perGroup[g.id]?.[m.id] ?? 0;
+    });
+    out[g.id].oppose = 0;
+  });
+  return out;
+};
+
+/** Every group scores 2 km2 a five, so stage two has an unambiguous winner. */
+const allWant2km = votesOf({
+  tourism: { '2km': 5 },
+  agriculture: { '2km': 5 },
+  academics: { '2km': 5 },
+  industries: { '2km': 5 },
+  environmental: { '2km': 5 },
+});
+
+const outcome = (spec: Partial<Record<GroupId, MineStance>>, votes = allWant2km) =>
+  resolveCommunityWinner(resolveStageOne(stancesOf(spec)), tallySizeVotes(votes).winnerId);
+
+// --- CLAIM 1: one accept, four silent, must not approve a mine
+{
+  const one = resolveStageOne(stancesOf({ industries: 'accept' }));
+  check('CLAIM 1  one group accepting and four silent does NOT approve a mine',
+    !one.approved, `accepts ${one.accepts} of a needed ${one.majority}`);
+  check('CLAIM 1  and the outcome is unsettled rather than a size',
+    outcome({ industries: 'accept' }) === null, String(outcome({ industries: 'accept' })));
+}
+
+// --- CLAIM 2: three of five approves
+{
+  const three = resolveStageOne(
+    stancesOf({ industries: 'accept', academics: 'accept', tourism: 'accept' })
+  );
+  check('CLAIM 2  three of five accepting approves a mine', three.approved);
+  check('CLAIM 2  and stage two then decides the size',
+    outcome({ industries: 'accept', academics: 'accept', tourism: 'accept' }) === '2km');
+  check('CLAIM 2  three accept and two refuse still approves',
+    outcome({
+      industries: 'accept', academics: 'accept', tourism: 'accept',
+      agriculture: 'reject', environmental: 'reject',
+    }) === '2km');
+}
+
+// --- CLAIM 3: unsettled is unsettled
+{
+  const split = resolveStageOne(
+    stancesOf({ industries: 'accept', academics: 'accept', environmental: 'reject' })
+  );
+  check('CLAIM 3  two accept, one refuse, two silent is not decided', !split.decided);
+  check('CLAIM 3  and it is NOT recorded as opposition',
+    outcome({ industries: 'accept', academics: 'accept', environmental: 'reject' }) === null);
+}
+
+// --- CLAIM 4: the two routes to refusal
+{
+  check('CLAIM 4  three refusing yields oppose',
+    outcome({ environmental: 'reject', agriculture: 'reject', tourism: 'reject' }) === 'oppose');
+  check('CLAIM 4  everyone answering with no majority accepting yields oppose',
+    outcome({
+      industries: 'accept', academics: 'accept',
+      environmental: 'reject', agriculture: 'reject', tourism: 'reject',
+    }) === 'oppose');
+}
+
+// --- CLAIM 5: opposition does not depend on the size scores
+{
+  const everySizeMaxed = votesOf({
+    tourism: { '8km': 5, '4km': 5, '2km': 5, '1km': 5, '0.5km': 5 },
+    agriculture: { '8km': 5, '4km': 5, '2km': 5, '1km': 5, '0.5km': 5 },
+    academics: { '8km': 5, '4km': 5, '2km': 5, '1km': 5, '0.5km': 5 },
+    industries: { '8km': 5, '4km': 5, '2km': 5, '1km': 5, '0.5km': 5 },
+    environmental: { '8km': 5, '4km': 5, '2km': 5, '1km': 5, '0.5km': 5 },
+  });
+  check('CLAIM 5  a refusing community exports oppose even with every size scored 5',
+    outcome(
+      { environmental: 'reject', agriculture: 'reject', tourism: 'reject' },
+      everySizeMaxed
+    ) === 'oppose');
+}
+
+// --- CLAIM 6: a zero is a refusal and it is counted
+{
+  // Three groups back 8 km2 at full strength (15); two score it zero, i.e.
+  // unacceptable. 4 km2 is everyone's lukewarm second (10), so 8 km2 leads on
+  // total while two of five groups refuse it outright. The first version of
+  // this fixture gave 4 km2 the higher total by accident, so the no-veto claim
+  // was never exercised and the check failed - correctly, against the fixture
+  // rather than against the code.
+  const t = tallySizeVotes(
+    votesOf({
+      industries: { '8km': 5, '4km': 2 },
+      academics: { '8km': 5, '4km': 2 },
+      tourism: { '8km': 5, '4km': 2 },
+      agriculture: { '8km': 0, '4km': 2 },
+      environmental: { '8km': 0, '4km': 2 },
+    })
+  );
+  check('CLAIM 6  two groups scoring 8 km2 zero are counted as refusing it',
+    t.refusals['8km'] === 2, `refusals ${t.refusals['8km']}`);
+  check('CLAIM 6  a size nobody scored zero reports no refusals',
+    t.refusals['4km'] === 0, `refusals ${t.refusals['4km']}`);
+  check('CLAIM 6  and a size no group scored at all counts as refused by all five',
+    t.refusals['0.5km'] === GROUPS.length, `refusals ${t.refusals['0.5km']}`);
+
+  // --- CLAIM 7: no veto
+  check('CLAIM 7  8 km2 still wins on total despite two groups refusing it',
+    t.winnerId === '8km', `total 8km ${t.tallies['8km']} vs 4km ${t.tallies['4km']}`);
+}
+
+// --- CLAIM 8: a group that finds nothing acceptable says so
+{
+  const allZero = votesOf({}).tourism;
+  check('CLAIM 8  a group scoring every size zero reads as none acceptable',
+    preferredSizeLabel(allZero) === 'none acceptable', preferredSizeLabel(allZero));
+  check('CLAIM 8  and a group with a preference reads as that size',
+    preferredSizeLabel(votesOf({ tourism: { '1km': 3 } }).tourism) === '1 km\u00b2');
+}
+
+// --- and the degenerate case: a mine approved but no size agreed
+{
+  check('a mine approved with every size scored zero yields no size, not a default',
+    outcome(
+      { industries: 'accept', academics: 'accept', tourism: 'accept' },
+      votesOf({})
+    ) === null);
+}
+
 
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}\n`);
 process.exit(failures === 0 ? 0 : 1);

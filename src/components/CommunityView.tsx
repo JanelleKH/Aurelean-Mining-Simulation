@@ -13,34 +13,20 @@ import {
   getCommunityBenefit,
   type CommunityBenefitId,
 } from '../data/communityBenefits';
+import {
+  GROUPS,
+  MINE_SIZES,
+  SIZE_BALLOT,
+  preferredSizeLabel,
+  resolveCommunityWinner,
+  resolveStageOne,
+  tallySizeVotes,
+  type GroupId,
+  type MineSizeId,
+  type MineStance,
+} from '../data/communityVote';
 import { NoBuildOverlays } from './map/NoBuildOverlays';
 import { MapScaleBar } from './map/MapScaleBar';
-
-type GroupId = 'tourism' | 'agriculture' | 'academics' | 'industries' | 'environmental';
-type MineSizeId = '8km' | '4km' | '2km' | '1km' | '0.5km' | 'oppose';
-
-interface Group {
-  id: GroupId;
-  label: string;
-  color: string;
-}
-
-const GROUPS: Group[] = [
-  { id: 'tourism', label: 'Tourism', color: 'bg-blue-100 border-blue-300' },
-  { id: 'agriculture', label: 'Agriculture', color: 'bg-green-100 border-green-300' },
-  { id: 'academics', label: 'Academics', color: 'bg-purple-100 border-purple-300' },
-  { id: 'industries', label: 'Industries', color: 'bg-orange-100 border-orange-300' },
-  { id: 'environmental', label: 'Environmental', color: 'bg-teal-100 border-teal-300' },
-];
-
-const MINE_SIZES: { id: MineSizeId; label: string; benefitsUnlocked: number; image: string }[] = [
-  { id: '8km', label: '8 km²', benefitsUnlocked: 5, image: '/mining_5.png' },
-  { id: '4km', label: '4 km²', benefitsUnlocked: 4, image: '/mining_4.png' },
-  { id: '2km', label: '2 km²', benefitsUnlocked: 3, image: '/mining_3.png' },
-  { id: '1km', label: '1 km²', benefitsUnlocked: 2, image: '/mining_2.png' },
-  { id: '0.5km', label: '0.5 km²', benefitsUnlocked: 1, image: '/mining_1.png' },
-  { id: 'oppose', label: 'Oppose Mine', benefitsUnlocked: 0, image: '/baseline.png' },
-];
 
 const BENEFIT_DETAILS: Record<
   CommunityBenefitId,
@@ -73,49 +59,6 @@ const BENEFIT_DETAILS: Record<
   },
 };
 
-const getWinner = (votes: Record<GroupId, Record<MineSizeId, number>>) => {
-  const tallies: Record<MineSizeId, number> = {
-    '8km': 0,
-    '4km': 0,
-    '2km': 0,
-    '1km': 0,
-    '0.5km': 0,
-    oppose: 0,
-  };
-
-  Object.values(votes).forEach(groupVotes => {
-    Object.entries(groupVotes).forEach(([size, score]) => {
-      tallies[size as MineSizeId] += score;
-    });
-  });
-
-  let winnerId: MineSizeId | null = null;
-  let maxScore = -1;
-
-  Object.entries(tallies).forEach(([id, score]) => {
-    if (score > maxScore) {
-      maxScore = score;
-      winnerId = id as MineSizeId;
-    }
-  });
-
-  if (maxScore === 0) return { winnerId: null, tallies };
-
-  return { winnerId, tallies };
-};
-
-const getPreferredOption = (groupVotes: Record<MineSizeId, number>) => {
-  let bestId: MineSizeId | null = null;
-  let max = 0;
-  Object.entries(groupVotes).forEach(([id, score]) => {
-    if (score > max) {
-      max = score;
-      bestId = id as MineSizeId;
-    }
-  });
-  return bestId ? MINE_SIZES.find(m => m.id === bestId)?.label : '-';
-};
-
 export const CommunityView: React.FC = () => {
   const [votes, setVotes] = useState<Record<GroupId, Record<MineSizeId, number>>>(() => {
     const initial = {} as Record<GroupId, Record<MineSizeId, number>>;
@@ -128,13 +71,39 @@ export const CommunityView: React.FC = () => {
     return initial;
   });
 
+  /** Stage one. Every group starts undecided; nothing is assumed on their behalf. */
+  const [stances, setStances] = useState<Record<GroupId, MineStance>>(() => {
+    const initial = {} as Record<GroupId, MineStance>;
+    GROUPS.forEach(g => {
+      initial[g.id] = 'abstain';
+    });
+    return initial;
+  });
+
   /** Fixed slots (1–3) for community-wide benefit picks — not per stakeholder group. */
   const [benefitSlots, setBenefitSlots] = useState<(CommunityBenefitId | '')[]>([]);
 
   const [hoveredBenefitId, setHoveredBenefitId] = useState<CommunityBenefitId | null>(null);
   const [selectedNoBuildIds, setSelectedNoBuildIds] = useState<SelectableNoBuildId[]>([]);
 
-  const { winnerId, tallies } = useMemo(() => getWinner(votes), [votes]);
+  const {
+    winnerId: sizeWinnerId,
+    tallies,
+    refusals,
+  } = useMemo(() => tallySizeVotes(votes), [votes]);
+
+  const stageOne = useMemo(() => resolveStageOne(stances), [stances]);
+  const {
+    accepts,
+    rejects,
+    abstains,
+    majority,
+    decided: stageOneDecided,
+    approved: mineApproved,
+    refused: mineRefused,
+  } = stageOne;
+
+  const winnerId = resolveCommunityWinner(stageOne, sizeWinnerId);
   const winner = winnerId ? MINE_SIZES.find(m => m.id === winnerId) : null;
   const benefitsUnlocked = winner ? winner.benefitsUnlocked : 0;
   const maxNoBuildZones = getMaxNoBuildZonesForCommunityWinner(winnerId);
@@ -170,6 +139,16 @@ export const CommunityView: React.FC = () => {
       ];
     });
   }, [benefitsUnlocked, winnerId]);
+
+  // Stage-two scores are deliberately NOT cleared when stage one flips to a
+  // refusal. An earlier version wiped them, which punished a group for testing
+  // what refusal looked like by destroying a ranking they had just agreed. The
+  // scores never reach the export in that state — the exported winner is
+  // 'oppose' and no benefits unlock — so keeping them costs nothing and means
+  // changing an answer back restores the work.
+  const handleStanceChange = (gId: GroupId, stance: MineStance) => {
+    setStances(prev => ({ ...prev, [gId]: stance }));
+  };
 
   const handleVoteChange = (gId: GroupId, mId: MineSizeId, val: number) => {
     setVotes(prev => ({
@@ -331,7 +310,123 @@ export const CommunityView: React.FC = () => {
             </div>
           </div>
         </div>
-        <table className="w-full text-xs text-left border-collapse">
+        {/* ------------------------- STEP 1: mine or no mine ------------------------- */}
+        <div className="p-3 border-b bg-white">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h3 className="text-sm font-bold text-gray-900">Step 1 — Should there be a mine?</h3>
+            <span className="text-[10px] uppercase tracking-wide text-gray-500">
+              one answer per group
+            </span>
+          </div>
+          <p className="text-[11px] text-gray-600 mt-1 max-w-3xl leading-snug">
+            Decide this before any size is discussed. Whether to mine and how big to mine are
+            different questions, and a group can hold a firm view on the first while having no view
+            on the second. A mine needs {majority} of the {GROUPS.length} groups to accept it.{' '}
+            <strong>Holding no view does not count as acceptance</strong> — silence is not
+            consent — so until {majority} groups come down on one side the question stays open
+            rather than being settled by whoever happened to speak.
+          </p>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {GROUPS.map(g => (
+              <div key={g.id} className={clsx('rounded border p-2', g.color)}>
+                <div className="text-xs font-bold text-gray-800">{g.label}</div>
+                <div className="mt-1 flex gap-1">
+                  {(['accept', 'reject', 'abstain'] as const).map(option => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => handleStanceChange(g.id, option)}
+                      aria-pressed={stances[g.id] === option}
+                      className={clsx(
+                        'flex-1 rounded border px-1 py-1 text-[10px] font-semibold capitalize transition-colors',
+                        stances[g.id] === option
+                          ? option === 'accept'
+                            ? 'bg-green-700 text-white border-green-800'
+                            : option === 'reject'
+                              ? 'bg-red-700 text-white border-red-800'
+                              : 'bg-gray-700 text-white border-gray-800'
+                          : 'bg-white/80 text-gray-700 border-gray-300 hover:bg-white'
+                      )}
+                    >
+                      {option === 'abstain' ? 'no view' : option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className={clsx(
+              'mt-2 rounded border-2 px-3 py-2 text-xs font-semibold',
+              mineApproved
+                ? 'border-green-500 bg-green-50 text-green-900'
+                : mineRefused
+                  ? 'border-red-500 bg-red-50 text-red-900'
+                  : 'border-gray-300 bg-gray-50 text-gray-600'
+            )}
+          >
+            {mineApproved ? (
+              <>
+                A mine proceeds — {accepts} accept, {rejects} refuse
+                {abstains ? `, ${abstains} with no view` : ''}. Go on to Step 2 and settle the size.
+              </>
+            ) : mineRefused ? (
+              <>
+                No mine — {accepts} accept, {rejects} refuse
+                {abstains ? `, ${abstains} with no view` : ''}.{' '}
+                {rejects >= majority
+                  ? `${rejects} groups refuse, which is a majority.`
+                  : 'Every group has answered and no majority accepts.'}{' '}
+                The community&apos;s position is to oppose, and no size is voted on. Export this as
+                the result, or change an answer above to reopen Step 2.
+              </>
+            ) : (
+              <>
+                Not settled — {accepts} accept, {rejects} refuse, {abstains} with no view.{' '}
+                {majority - accepts} more acceptance{majority - accepts === 1 ? '' : 's'} opens Step
+                2; {majority - rejects} more refusal{majority - rejects === 1 ? '' : 's'} closes it.
+                A silent group counts toward neither.
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* --------------------------- STEP 2: which size --------------------------- */}
+        <div className="p-3 border-b bg-white">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h3
+              className={clsx(
+                'text-sm font-bold',
+                mineApproved ? 'text-gray-900' : 'text-gray-400'
+              )}
+            >
+              Step 2 — How big should it be?
+            </h3>
+            {!mineApproved && (
+              <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                locked until {majority} groups accept a mine
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-600 mt-1 max-w-3xl leading-snug">
+            Each group scores every size from 0 to 5. <strong>0 does not mean &ldquo;no
+            opinion&rdquo;</strong> — it means that size is unacceptable to your group, and the
+            number of groups saying so is counted in the last column beside the total. 5 means
+            strongly preferred. The size with the highest total wins, so a size can win while
+            groups still object to it; those objections are the material for the negotiation rather
+            than something the vote resolves.
+          </p>
+        </div>
+
+        <table
+          className={clsx(
+            'w-full text-xs text-left border-collapse',
+            !mineApproved && 'opacity-40 pointer-events-none select-none'
+          )}
+          aria-disabled={!mineApproved}
+        >
           <thead className="bg-gray-100 text-gray-700 sticky top-0 z-10 shadow-sm">
             <tr>
               <th className="p-2 border font-bold min-w-[120px]">Community Group Impacted</th>
@@ -340,13 +435,16 @@ export const CommunityView: React.FC = () => {
                   {g.label}
                 </th>
               ))}
-              <th className="p-2 border font-bold bg-gray-200 text-center min-w-[100px]">
-                Tally / Summarize
+              <th className="p-2 border font-bold bg-gray-200 text-center min-w-[120px]">
+                Total
+                <div className="text-[9px] font-normal normal-case text-gray-600">
+                  and who finds it unacceptable
+                </div>
               </th>
             </tr>
           </thead>
           <tbody>
-            {MINE_SIZES.map(size => (
+            {SIZE_BALLOT.map(size => (
               <tr
                 key={size.id}
                 className={clsx(
@@ -370,8 +468,18 @@ export const CommunityView: React.FC = () => {
                     </select>
                   </td>
                 ))}
-                <td className="p-2 border text-center font-bold text-base text-blue-600">
-                  {tallies[size.id]}
+                <td className="p-2 border text-center">
+                  <div className="font-bold text-base text-blue-600">{tallies[size.id]}</div>
+                  <div
+                    className={clsx(
+                      'text-[9px] leading-tight',
+                      refusals[size.id] > 0 ? 'font-semibold text-red-700' : 'text-gray-400'
+                    )}
+                  >
+                    {refusals[size.id] === 0
+                      ? 'no group refuses'
+                      : `${refusals[size.id]} of ${GROUPS.length} find this unacceptable`}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -380,11 +488,17 @@ export const CommunityView: React.FC = () => {
               <td className="p-2 border font-bold">Group&apos;s Preferred Option</td>
               {GROUPS.map(g => (
                 <td key={g.id} className="p-2 border text-center font-medium text-gray-600">
-                  {getPreferredOption(votes[g.id])}
+                  {preferredSizeLabel(votes[g.id])}
                 </td>
               ))}
               <td className="p-2 border text-center font-bold text-lg bg-yellow-200 border-yellow-400">
-                {winner ? winner.label : '-'}
+                {winner
+                  ? winner.label
+                  : mineApproved
+                    ? 'no size agreed'
+                    : stageOneDecided
+                      ? 'oppose'
+                      : '-'}
               </td>
             </tr>
 

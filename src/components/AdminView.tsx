@@ -187,7 +187,26 @@ function buildFeasibilityAnalysis(
   const safeDevIndex = devIndex ?? 99;
   const sizeGap = Math.abs(safeDevIndex - commIndex);
 
-  if (sizeGap === 0) {
+  // Opposition is not a size. The community voting against a mine at all used to
+  // be scored as a five-step gap on the size ladder, which read as "you wanted
+  // different sizes" when what happened was a refusal. Since the community vote
+  // became two-stage on 31 October 2026, 'oppose' is the recorded outcome of
+  // stage one, and it gets its own verdict here.
+  if (communityData.winnerId === 'oppose') {
+    sizeVerdict = 'fail';
+    sizeDetails.push(
+      `The community voted against a mine at any size. The developer proposed ${devSizeLabel}. This is a refusal rather than a disagreement about scale — there is no size that splits the difference.`
+    );
+    blockers.push({
+      kind: 'fail',
+      section: 1,
+      test: 'Community consent to mine at all',
+      measured: `Refused at stage one of the community vote; developer proposed ${devSizeLabel}`,
+      threshold: 'More groups accepting a mine than refusing one',
+      remedy:
+        'Nothing in this submission. A benefits package cannot buy consent that was withheld in principle, and shrinking the mine does not answer a vote that was about whether to mine. The developer either persuades a group to change its stage-one answer, or there is no project.',
+    });
+  } else if (sizeGap === 0) {
     sizeDetails.push('Mine sizes match — both sides targeted the same scale.');
   } else if (sizeGap <= 2) {
     sizeVerdict = 'warn';
