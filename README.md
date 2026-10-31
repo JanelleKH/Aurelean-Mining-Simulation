@@ -3,7 +3,14 @@
 A multi-role decision support tool for simulating negotiations between a **Mining Developer** and a **Community Group**, overseen by an **Administrator**.
 
 ## 🚀 Live Access
-**URL**: [https://caseres-mining-simulation.vercel.app/](https://caseres-mining-simulation.vercel.app/)
+**URL**: [https://aurelean-mining-simulation.vercel.app/](https://aurelean-mining-simulation.vercel.app/)
+
+> **Do not use `caseres-mining-simulation.vercel.app`.** That hostname resolves
+> to a different Vercel project — an old prototype titled
+> *community-benefit-unlocker* — and does **not** track this repository. It was
+> listed here until 31 October 2026, when a check of the deployed bundle hashes
+> found the two hostnames serving different applications. The address above is
+> the one that deploys from `main`.
 
 ---
 
