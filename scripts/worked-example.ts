@@ -15,7 +15,7 @@ console.log(`1. reserve        = ${KM2} km2 x 15 Mt/km2            = ${f(reserve
 console.log(`2. mine life      = ${f(reserve/1e6,1)} / 3.0                      = ${f(mineLifeYr(reserve,CAP),1)} yr   (Taylor predicts ${f(taylorLifeYr(reserve),1)} yr)`);
 const cf = aquiferCaptureFraction(KM2);
 console.log(`3. capture        = 1 - exp(-${KM2}/${AQUIFER_CAPTURE_SCALE_KM2})              = ${f(cf*100,1)}% of the aquifer`);
-const gross = grossDewateringM3PerDay(KM2);
+const gross = grossDewateringM3PerDay(KM2, CAP);
 console.log(`4. gross inflow   = ${f(cf,3)} x ${AQUIFER_OUTCROP_AREA_KM2} km2 x ${SPECIFIC_INFLOW_M3_PER_D_PER_KM2_CONNECTED}    = ${f(gross,0)} m3/d`);
 const e = waterMitigationEffectiveness(SPEND);
 console.log(`5. mitigation     = 0.6 x (1-exp(-2.3/4.0))        = ${f(e*100,1)}% suppressed`);

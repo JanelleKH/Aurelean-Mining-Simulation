@@ -33,6 +33,8 @@ import {
   TAYLOR_PLAUSIBILITY_FACTOR,
   WATER_MITIGATION_MAX_EFFECTIVENESS,
   WATER_MITIGATION_SPEND_SCALE_USD,
+  DEWATERING_ADVANCE_FRACTION,
+  NOMINAL_THROUGHPUT_T_PER_YR,
 } from './params.ts';
 
 const DAYS_PER_YR = 365;
@@ -82,11 +84,40 @@ export function aquiferCaptureFraction(mineSizeKm2: number): number {
  * version multiplied licence area by a per-licence-km2 rate, which no analogue
  * supports.
  */
-export function grossDewateringM3PerDay(mineSizeKm2: number): number {
+/**
+ * How much harder a pit has to be pumped because of how fast it is advancing.
+ *
+ * 1.0 at the nominal throughput, by construction, so the published figures for
+ * a 3.0 Mt/yr plan are untouched. Below nominal the factor falls, above it
+ * rises. See DEWATERING_ADVANCE_FRACTION for why this exists and why 0.35.
+ *
+ * Floored at a tenth so that an arbitrarily slow mine cannot pump an
+ * arbitrarily small amount: steady seepage into an open excavation does not
+ * go away because the trucks are slow.
+ */
+export function advanceIntensityFactor(capacityTPerYr: number): number {
+  const ratio = capacityTPerYr / NOMINAL_THROUGHPUT_T_PER_YR;
+  const f =
+    1 - DEWATERING_ADVANCE_FRACTION + DEWATERING_ADVANCE_FRACTION * ratio;
+  return Math.max(0.1, f);
+}
+
+/**
+ * Inflow the pit has to handle before anything is spent on managing it.
+ *
+ * Two terms. The steady one is the excavation's footprint and how well it is
+ * connected to the aquifer. The other scales with how fast the face is
+ * advancing, because new wetted ground has to be pre-drained ahead of it.
+ */
+export function grossDewateringM3PerDay(
+  mineSizeKm2: number,
+  capacityTPerYr: number
+): number {
   return (
     aquiferCaptureFraction(mineSizeKm2) *
     AQUIFER_OUTCROP_AREA_KM2 *
-    SPECIFIC_INFLOW_M3_PER_D_PER_KM2_CONNECTED
+    SPECIFIC_INFLOW_M3_PER_D_PER_KM2_CONNECTED *
+    advanceIntensityFactor(capacityTPerYr)
   );
 }
 
@@ -117,8 +148,15 @@ export function spendForEffectiveness(target: number): number | null {
 }
 
 /** Net inflow after mitigation, m3/d. */
-export function netDewateringM3PerDay(mineSizeKm2: number, waterSpendUsd: number): number {
-  return grossDewateringM3PerDay(mineSizeKm2) * (1 - waterMitigationEffectiveness(waterSpendUsd));
+export function netDewateringM3PerDay(
+  mineSizeKm2: number,
+  waterSpendUsd: number,
+  capacityTPerYr: number
+): number {
+  return (
+    grossDewateringM3PerDay(mineSizeKm2, capacityTPerYr) *
+    (1 - waterMitigationEffectiveness(waterSpendUsd))
+  );
 }
 
 /* ------------------------------------------------------------------ *

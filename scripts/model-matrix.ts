@@ -148,7 +148,7 @@ console.log('\n=== SENSITIVITY to transmissivity (cistern drawdown, m, barrier i
 console.log(`size   T=1000 (used)   T=${AQUIFER_TRANSMISSIVITY_HIGH_M2_PER_D} (upper range)`);
 for (const km2 of MINE_SIZES_KM2) {
   const t = pumpingDurationDays(km2 * ORE_T_PER_KM2, REF_CAP);
-  const q = grossDewateringM3PerDay(km2);
+  const q = grossDewateringM3PerDay(km2, REF_CAP);
   console.log(
     `${km2.toFixed(1).padStart(4)}   ${theisDrawdownM(q, 2000, t).toFixed(2).padStart(13)}   ` +
       `${theisDrawdownM(q, 2000, t, AQUIFER_TRANSMISSIVITY_HIGH_M2_PER_D).toFixed(2).padStart(20)}`,

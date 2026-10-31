@@ -246,6 +246,14 @@ export function LedgerPanel({
                 <Row label="Mine life">{fmt(water.timing.mineLifeYr, 1)} years</Row>
               </dl>
 
+              <p className="mt-2 text-xs text-gray-600">
+                Production rate cuts both ways here. Mining slowly keeps the pumps running for
+                longer, and a cone of depression widens with time. Mining quickly means
+                pre-draining ahead of a face that is advancing faster, so the pumps run harder.
+                Neither is a way out of the water problem — there is no rate at which it goes
+                away.
+              </p>
+
               {water.balance.spendingStorage && (
                 <p className="mt-2 text-xs text-red-800 bg-red-50 border border-red-200 rounded p-2">
                   The mine takes more than the aquifer receives, so the shortfall comes out of stored

@@ -21,6 +21,8 @@ import {
 } from '../src/data/mitigationConstants.ts';
 import { canoeAvailability, COMMUNITY_BENEFITS } from '../src/data/communityBenefits.ts';
 import { ELECTRIFICATION_REQUIRES } from '../src/model/params.ts';
+import { NOMINAL_THROUGHPUT_T_PER_YR } from '../src/model/params.ts';
+import { advanceIntensityFactor } from '../src/model/hydrology.ts';
 import {
   GROUPS,
   SIZE_BALLOT,
@@ -1012,6 +1014,99 @@ console.log('\n=== HAUL FLEET ELECTRIFICATION ===\n');
   check('CLAIM E4  and barely moves PM10, because the wheels keep turning',
     pm10Drop < pm25Drop / 2,
     `${pm10Before.toFixed(2)} -> ${pm10After.toFixed(2)} ug/m3 (${pm10Drop.toFixed(0)}% down, against ${pm25Drop.toFixed(0)}% for PM2.5)`);
+}
+
+
+
+// ===========================================================================
+// PRODUCTION RATE AND WATER (31 October 2026)
+// ===========================================================================
+//
+// Dewatering was a function of area and mitigation spend only, so production
+// rate reached the water ledger through one channel - mine life. A faster mine
+// finished sooner, transient drawdown had less time to develop, and the
+// receptors did better. The way to protect the agricultural wells was to mine
+// as fast as possible, at no cost anywhere else in the model.
+//
+// The Theis part was never wrong: pumping for less time really does draw down
+// less at a distant receptor. What was missing is that a pit advancing faster
+// has to pre-drain ahead of its face, so the pumping RATE is not independent
+// of production either. DEWATERING_ADVANCE_FRACTION splits inflow between the
+// two, anchored so the factor is exactly 1.0 at nominal throughput.
+//
+// Pre-registered, with the whole 5x4x3 matrix captured before the change:
+//   CLAIM W1  Every figure at 3.0 Mt/yr is unchanged. This is the one that
+//             protects the briefings, which quote the nominal case. Against
+//             the claim: any figure moves, and the change must be reverted
+//             rather than patched.
+//   CLAIM W2  Drawdown no longer falls monotonically with rate. Against: the
+//             fastest rate is still the gentlest, i.e. the exploit survives.
+//   CLAIM W3  Mining faster now costs something. Against: 5 Mt/yr still draws
+//             down less than 3 Mt/yr.
+//   CLAIM W4  The gradient a team could climb has largely closed. Measured
+//             before at 1.24 m of swing across rates at 0.5 km2 - 62% of the
+//             wells' entire 2.0 m tolerance. Against: still above a quarter
+//             of tolerance.
+//   CLAIM W5  No cistern verdict moves anywhere in the matrix. Against: any
+//             change, since the cistern is the exercise's fixed point.
+
+console.log('\n=== PRODUCTION RATE AND WATER ===\n');
+
+{
+  const wells = (km2: number, capacity: number, spend = 300_000) =>
+    computeWaterLedger({
+      mineSizeKm2: km2,
+      capacityTPerYr: capacity,
+      waterMitigationSpendUsd: spend,
+    }).receptors[1];
+  const cistern = (km2: number, capacity: number, spend = 300_000) =>
+    computeWaterLedger({
+      mineSizeKm2: km2,
+      capacityTPerYr: capacity,
+      waterMitigationSpendUsd: spend,
+    }).receptors[0];
+
+  // CLAIM W1 - anchors from the matrix captured before the change.
+  check('CLAIM W1  3.0 Mt/yr at 0.5 km2 is unchanged (1.926 m)',
+    Math.abs(wells(0.5, 3_000_000).drawdownM - 1.926) < 0.001,
+    `${wells(0.5, 3_000_000).drawdownM.toFixed(3)} m`);
+  check('CLAIM W1  3.0 Mt/yr at 4 km2 is unchanged (10.010 m)',
+    Math.abs(wells(4, 3_000_000).drawdownM - 10.010) < 0.001,
+    `${wells(4, 3_000_000).drawdownM.toFixed(3)} m`);
+  check('CLAIM W1  and the cistern at 4 km2, 3.0 Mt/yr is unchanged (11.455 m)',
+    Math.abs(cistern(4, 3_000_000).drawdownM - 11.455) < 0.001,
+    `${cistern(4, 3_000_000).drawdownM.toFixed(3)} m`);
+  check('CLAIM W1  because the advance factor is exactly 1 at nominal throughput',
+    advanceIntensityFactor(NOMINAL_THROUGHPUT_T_PER_YR) === 1);
+
+  // CLAIM W2 / W3 - rate is no longer a one-way street.
+  const byRate = [500_000, 1_500_000, 3_000_000, 5_000_000].map(c => wells(0.5, c).drawdownM);
+  const monotoneDown = byRate.every((v, i) => i === 0 || v < byRate[i - 1]);
+  check('CLAIM W2  drawdown no longer falls at every step up in rate',
+    !monotoneDown, byRate.map(v => v.toFixed(2)).join(' -> ') + ' m');
+  check('CLAIM W3  mining at 5 Mt/yr now costs more drawdown than 3 Mt/yr',
+    byRate[3] > byRate[2], `${byRate[2].toFixed(2)} -> ${byRate[3].toFixed(2)} m`);
+
+  // CLAIM W4 - the size of the remaining gradient, against the tolerance.
+  const tolerance = wells(0.5, 3_000_000).toleranceM;
+  const swing = Math.max(...byRate) - Math.min(...byRate);
+  check('CLAIM W4  the swing across rates is under a quarter of the wells tolerance',
+    swing < 0.25 * tolerance,
+    `${swing.toFixed(2)} m of a ${tolerance.toFixed(2)} m tolerance (${((swing / tolerance) * 100).toFixed(0)}%), was 1.24 m (62%)`);
+
+  // CLAIM W5 - the cistern is the fixed point of the exercise.
+  let cisternMoved = 0;
+  for (const km2 of [0.5, 1, 2, 4, 8]) {
+    for (const spend of [300_000, 4_300_000, 10_300_000]) {
+      const verdicts = new Set(
+        [500_000, 1_500_000, 3_000_000, 5_000_000].map(c => cistern(km2, c, spend).verdict)
+      );
+      // The cistern should be decided by SIZE, not by how fast you mine.
+      if (verdicts.size > 1) cisternMoved++;
+    }
+  }
+  check('CLAIM W5  production rate never changes the cistern verdict',
+    cisternMoved === 0, `${cisternMoved} of 15 (size, spend) combinations affected`);
 }
 
 

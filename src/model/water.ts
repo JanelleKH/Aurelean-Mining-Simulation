@@ -156,8 +156,10 @@ export function computeWaterLedger(input: {
   const lifeYr = mineLifeYr(reserveT, capacityTPerYr);
   const durationDays = pumpingDurationDays(reserveT, capacityTPerYr);
 
-  const grossDay = grossDewateringM3PerDay(mineSizeKm2);
-  const netDay = netDewateringM3PerDay(mineSizeKm2, waterMitigationSpendUsd);
+  // Both now depend on production rate as well as area: a pit advancing faster
+  // has to pre-drain ahead of its face. See DEWATERING_ADVANCE_FRACTION.
+  const grossDay = grossDewateringM3PerDay(mineSizeKm2, capacityTPerYr);
+  const netDay = netDewateringM3PerDay(mineSizeKm2, waterMitigationSpendUsd, capacityTPerYr);
 
   const dewateringWithdrawal = netDay * DAYS_PER_YR;
   const processWithdrawal = processMakeupWaterM3PerYr(capacityTPerYr);

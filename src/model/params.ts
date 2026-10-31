@@ -438,6 +438,41 @@ export const DIESEL_PM25_G_PER_T_MOVED = 1.2;
 export const NOMINAL_THROUGHPUT_T_PER_YR = 3_000_000;
 
 /**
+ * How much of mine dewatering is driven by the RATE of advance rather than by
+ * the geometry of the excavation. Calibrated, not observed.
+ *
+ * Added 31 October 2026 to close a hole in the exercise. Dewatering used to be
+ * a function of area and mitigation spend only, so production rate reached the
+ * water ledger through one channel: mine life. A faster mine finished sooner,
+ * transient drawdown had less time to develop, and the receptors did better.
+ * The result was a free lever - the way to protect the agricultural wells was
+ * to mine as fast as possible, at no cost anywhere else in the model.
+ *
+ * The physics was not wrong so much as half-written. Pumping for a shorter
+ * time genuinely produces less drawdown at a distant receptor; that part is
+ * correct Theis behaviour and it stays. What was missing is the other half: a
+ * pit advancing five times faster exposes new wetted face five times faster
+ * and has to pre-drain ahead of it, so the pumping RATE is not independent of
+ * production. Holding it constant meant intensity cost nothing.
+ *
+ * So inflow splits in two. A fraction DEWATERING_ADVANCE_FRACTION scales with
+ * throughput relative to nominal; the rest is steady seepage set by the
+ * excavation's footprint and its connection to the aquifer.
+ *
+ * 0.35 is chosen, not measured. Two things make it defensible. The split sits
+ * inside the range reported for open-pit operations, where pre-drainage is a
+ * large minority of total pumping rather than most or none of it. And the
+ * value is set so that at this aquifer's geometry the two effects roughly
+ * cancel across the available rates: mining slowly draws down for longer,
+ * mining quickly draws down harder, and neither is a way out. That is the
+ * honest shape of the trade-off and it is the shape the exercise needs.
+ *
+ * Anchored at NOMINAL_THROUGHPUT_T_PER_YR, so the factor is exactly 1.0 at
+ * 3.0 Mt/yr and every figure already published for that case is unchanged.
+ */
+export const DEWATERING_ADVANCE_FRACTION = 0.35;
+
+/**
  * Release height by facility kind, m.
  *
  * Added after the first run of the siting model, which released everything at
