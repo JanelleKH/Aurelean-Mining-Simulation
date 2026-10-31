@@ -5,12 +5,32 @@ A multi-role decision support tool for simulating negotiations between a **Minin
 ## 🚀 Live Access
 **URL**: [https://aurelean-mining-simulation.vercel.app/](https://aurelean-mining-simulation.vercel.app/)
 
-> **Do not use `caseres-mining-simulation.vercel.app`.** That hostname resolves
-> to a different Vercel project — an old prototype titled
-> *community-benefit-unlocker* — and does **not** track this repository. It was
-> listed here until 31 October 2026, when a check of the deployed bundle hashes
-> found the two hostnames serving different applications. The address above is
-> the one that deploys from `main`.
+Also live, and serving the same build: `https://caceres-mining-simulation.vercel.app/`
+
+> ### ⚠️ One letter separates a working address from the wrong application
+>
+> | Hostname | Serves |
+> |---|---|
+> | `aurelean-mining-simulation.vercel.app` | **this repo** — *Aurelean Mountain — Mining Simulation* |
+> | `ca`**`c`**`eres-mining-simulation.vercel.app` | **this repo** — same build (note the **C**) |
+> | `ca`**`s`**`eres-mining-simulation.vercel.app` | a **different, older project** titled *community-benefit-unlocker* (note the **S**) |
+>
+> The `cas`‑ spelling is not a stale copy of this app. It is a different
+> application that loads without complaint, so anyone opening it has no signal
+> that they are in the wrong place. Verified 31 October 2026 by comparing
+> deployed bundle hashes and page titles.
+>
+> **Prefer the `aurelean-` address everywhere.** It matches the project, the
+> repository and the simulation, and it has no near-miss twin.
+>
+> **Why the near-miss exists.** This project descends from an earlier one, and
+> the lineage is visible in the names: an original built elsewhere, then
+> `Caceres-Mining-Simulation` under this account, then the rename to
+> `Aurelean-Mining-Simulation`. The `cac`‑ hostname is this project's own
+> earlier name and still points here. The `cas`‑ hostname belongs to the
+> predecessor and is not under this account's control — it cannot be taken
+> down from here, only stopped from being quoted. Older slide decks still
+> carry it; the 25 October briefings do not.
 
 ---
 
@@ -92,8 +112,8 @@ See **[Admin feasibility analysis](docs/admin-feasibility.md)** for full rules.
 
 ### Running Locally
 ```bash
-git clone https://github.com/YOUR_USERNAME/caseras-negotiation-app.git
-cd caseras-negotiation-app
+git clone https://github.com/JanelleKH/Aurelean-Mining-Simulation.git
+cd Aurelean-Mining-Simulation
 npm install
 npm run dev
 ```
