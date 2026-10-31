@@ -79,9 +79,9 @@ function percentileBand(
   if (sortedUtilities.length < 2) return null;
   const p25 = percentileValue(sortedUtilities, 25);
   const p75 = percentileValue(sortedUtilities, 75);
-  if (utility < p25) return 'bottom 25% of bundles (red)';
-  if (utility <= p75) return 'middle 50% of bundles (orange)';
-  return 'top 25% of bundles (green)';
+  if (utility < p25) return 'bottom 25% of bundles by utility';
+  if (utility <= p75) return 'middle 50% of bundles by utility';
+  return 'top 25% of bundles by utility';
 }
 
 function buildBundleTooltipLines(
@@ -136,19 +136,40 @@ function buildBundleTooltipLines(
   return lines;
 }
 
-/** Red = bottom 25%, orange = middle 50%, green = top 25% by utility. */
-function utilityPercentileColor(
-  utility: number,
-  sortedUtilities: number[],
-  benefitIds: string[]
-): string {
-  if (benefitIds.length === 0) return '#9ca3af';
-  if (sortedUtilities.length < 2) return '#8884d8';
-  const p25 = percentileValue(sortedUtilities, 25);
-  const p75 = percentileValue(sortedUtilities, 75);
-  if (utility < p25) return '#dc2626';
-  if (utility <= p75) return '#f97316';
-  return '#22c55e';
+/**
+ * How a bundle is drawn.
+ *
+ * This used to be a red / orange / green traffic light on utility percentile,
+ * and it was wrong on three counts. First, it moralised: red said a cheap
+ * low-utility bundle was a bad bundle, when the whole design of this exercise
+ * refuses to rank dimensions against one another or produce an overall score.
+ * A bundle that buys a park and nothing else is small, not wicked. Second, the
+ * encoding was redundant — utility is already the y-axis, so colour was
+ * repeating the vertical position and saying nothing new. Third, two of the
+ * three colours failed the contrast floor against this panel's background
+ * (#22c55e at 2.22:1 and #f97316 at 2.73:1, where a mark needs 3:1), and
+ * red-against-green is the single worst pair to hand a colour-blind reader.
+ *
+ * So colour now carries the thing the facilitator actually needs and neither
+ * axis shows: whether the bundle is inside the developer's budget. One hue,
+ * two prominences — solid for affordable, faded for out of reach — which is
+ * legible in any form of colour vision because it does not depend on hue at
+ * all. Utility rank survives as words in the tooltip, where a rank belongs.
+ */
+const MARK_BLUE = '#2a78d6'; // 4.2:1 on this panel
+const MARK_NEUTRAL = '#9ca3af';
+
+function bundleMarkStyle(
+  cost: number,
+  benefitIds: string[],
+  budget: number | null
+): { fill: string; fillOpacity: number } {
+  // The "fund nothing" point is neither affordable nor not; it is the origin.
+  if (benefitIds.length === 0) return { fill: MARK_NEUTRAL, fillOpacity: 0.55 };
+  if (budget == null || budget <= 0) return { fill: MARK_BLUE, fillOpacity: 0.8 };
+  return cost <= budget
+    ? { fill: MARK_BLUE, fillOpacity: 0.85 }
+    : { fill: MARK_BLUE, fillOpacity: 0.22 };
 }
 
 /** All non-empty subsets for scatter (2^5 - 1 = 31) plus optional empty point. */
@@ -258,7 +279,7 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
       return {
         ...item,
         isMatch,
-        fillColor: utilityPercentileColor(item.utility, utilitiesForRank, item.benefitIds),
+        ...bundleMarkStyle(item.cost, item.benefitIds, developerBudget),
         tooltipLines: buildBundleTooltipLines(
           item.benefitIds,
           item.utility,
@@ -270,7 +291,7 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
         ),
       };
     });
-  }, [weights, choice, highlightBenefitIds, hasLeverAllocations]);
+  }, [weights, choice, highlightBenefitIds, hasLeverAllocations, developerBudget]);
 
   return (
     <div
@@ -289,8 +310,8 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
         <strong>Cost</strong> is the sum of benefit price tags. Hover a dot for the calculation.
       </p>
       <p className="text-[9px] text-gray-500 text-center mb-1 shrink-0">
-        Dot color: red = bottom 25% utility, orange = middle 50%, green = top 25% (black ring =
-        current selection)
+        Solid dots are bundles the developer&apos;s budget covers; faded dots cost more than the
+        budget. The orange line is the budget. Black ring = the community&apos;s current selection.
       </p>
       <ResponsiveContainer width="100%" height="85%">
         <ScatterChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
@@ -328,26 +349,29 @@ export const BenefitUtilityCostChart: React.FC<BenefitUtilityCostChartProps> = (
             }}
           />
           <Legend />
-          <Scatter name="Benefit bundles" data={chartData} fill="#8884d8" fillOpacity={0.75}>
+          <Scatter name="Benefit bundles" data={chartData} fill={MARK_BLUE}>
             {chartData.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={entry.fillColor}
-                stroke={entry.isMatch ? '#111827' : 'none'}
-                strokeWidth={entry.isMatch ? 3 : 0}
+                fill={entry.fill}
+                fillOpacity={entry.fillOpacity}
+                stroke={entry.isMatch ? '#0b0b0b' : 'none'}
+                strokeWidth={entry.isMatch ? 2.5 : 0}
               />
             ))}
           </Scatter>
           {developerBudget != null && developerBudget > 0 && (
             <ReferenceLine
               x={developerBudget}
-              stroke="green"
-              strokeDasharray="3 3"
+              stroke="#eb6834"
+              strokeWidth={2}
+              strokeDasharray="4 3"
               label={{
                 position: 'top',
-                value: 'Miner Allocated Budget',
-                fill: 'green',
+                value: "Developer's budget",
+                fill: '#b84c21',
                 fontSize: 11,
+                fontWeight: 600,
               }}
             />
           )}

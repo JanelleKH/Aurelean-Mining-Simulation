@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { Upload, AlertTriangle, CheckCircle, XCircle, FileText } from 'lucide-react';
 import { BenefitUtilityCostChart } from './BenefitUtilityCostChart';
+import { WhyItFailedCard, type Blocker } from './WhyItFailedCard';
 import { AdminNegotiationMap } from './map/AdminNegotiationMap';
 import type { SelectableNoBuildId } from '../data/noBuildAreas';
 import {
@@ -11,7 +12,7 @@ import {
   normalizeNoBuildId,
   validateNoGoZoneFeasibility,
 } from '../data/noBuildAreas';
-import { getCommunityBenefit } from '../data/communityBenefits';
+import { benefitCostUsd, getCommunityBenefit } from '../data/communityBenefits';
 import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
 import { toAirSourcesFromRecords } from '../data/airSources';
 import {
@@ -147,12 +148,16 @@ interface FeasibilitySection {
 
 interface FeasibilityResult {
   status: 'optimal' | 'suboptimal' | 'infeasible';
+  blockers: Blocker[];
   sections: {
     sizeAlignment: FeasibilitySection;
     environmentalBenefits: FeasibilitySection;
     mapSiting: FeasibilitySection;
   };
 }
+
+/** $1,234,567 -> "$1.2M". Used only in blocker text. */
+const usdM = (n: number) => '$' + (n / 1e6).toFixed(1) + 'M';
 
 
 function benefitLabel(id: string): string {
@@ -166,6 +171,7 @@ function buildFeasibilityAnalysis(
 ): FeasibilityResult {
   const sizeDetails: string[] = [];
   let sizeVerdict: SectionVerdict = 'pass';
+  const blockers: Blocker[] = [];
 
   const communitySizeLabel =
     SIZE_LABELS[communityData.winnerId] ?? communityData.winnerId;
@@ -188,11 +194,27 @@ function buildFeasibilityAnalysis(
     sizeDetails.push(
       `Mine sizes are close but not identical (${sizeGap} step${sizeGap === 1 ? '' : 's'} apart). The deal may still work, but alignment is not ideal.`
     );
+    blockers.push({
+      kind: 'warn',
+      section: 1,
+      test: 'Mine size alignment',
+      measured: `${sizeGap} step${sizeGap === 1 ? '' : 's'} apart on the size ladder — community ${communitySizeLabel}, developer ${devSizeLabel}`,
+      threshold: 'Same step to pass cleanly; 1 to 2 steps is a warning',
+      remedy: `Developer moves to ${communitySizeLabel}, or the community accepts ${devSizeLabel}`,
+    });
   } else {
     sizeVerdict = 'fail';
     sizeDetails.push(
       `Mine sizes are too far apart (${sizeGap} steps). Community and developer are not negotiating the same project scale — not feasible.`
     );
+    blockers.push({
+      kind: 'fail',
+      section: 1,
+      test: 'Mine size alignment',
+      measured: `${sizeGap} steps apart — community voted ${communitySizeLabel}, developer proposed ${devSizeLabel}`,
+      threshold: 'No more than 2 steps apart on the size ladder',
+      remedy: 'One side moves. There is no package of benefits that closes a three-step gap, because the two sides are costing different projects.',
+    });
   }
 
   const zoneCount = communityData.consensusAreaIds.length;
@@ -204,37 +226,62 @@ function buildFeasibilityAnalysis(
   );
   const devMaxNoGo = getMaxNoBuildZonesForMineSizeKm2(developerData.size_km2);
 
+  // No-go zones are tested ONE way only: by whether facilities actually overlap
+  // them, which is the siting check in section 3.
+  //
+  // This section used to fail the plan whenever the community had designated
+  // more zones than the DEVELOPER's chosen mine size would allow. That was
+  // backwards. A no-go zone is the community's veto; the developer choosing a
+  // larger mine cannot delete it. It also made the front of the read-out
+  // contradict section 3, which was testing overlap correctly. Counts are
+  // reported here as context; the verdict lives with the overlap.
   if (communityData.noGoZoneCount !== zoneCount) {
+    // A genuine file problem rather than a judgement about the plan.
     sizeVerdict = 'fail';
     sizeDetails.push(
-      `No-go zone count in the community file (${communityData.noGoZoneCount}) does not match selected zones (${zoneCount}).`
+      `Community file is inconsistent: it records ${communityData.noGoZoneCount} no-go zone(s) but lists ${zoneCount}. Re-export from the community view before assessing.`
     );
+    blockers.push({
+      kind: 'fail',
+      section: 1,
+      test: 'Community results file is internally consistent',
+      measured: `Header says ${communityData.noGoZoneCount} no-go zone(s); the file lists ${zoneCount}`,
+      threshold: 'The two figures have to match',
+      remedy: 'Re-export from the community view. This is a file problem, not a judgement about the plan — nothing below it has been assessed against the right zones.',
+    });
   } else if (!noGoCheck.ok) {
     sizeVerdict = 'fail';
-    sizeDetails.push(noGoCheck.message ?? 'Too many no-go zones for the community mine size.');
+    sizeDetails.push(
+      `Community file breaks its own rules: ${noGoCheck.message ?? `more no-go zones than ${communitySizeLabel} permits.`} Re-export from the community view.`
+    );
+    blockers.push({
+      kind: 'fail',
+      section: 1,
+      test: 'No-go zones within the community\u2019s own allowance',
+      measured: `${zoneCount} zone(s) designated at ${communitySizeLabel}`,
+      threshold: `${expectedMax} zone(s) permitted at ${communitySizeLabel}`,
+      remedy: 'Community drops a zone, or votes for a larger mine, which buys more of them. Re-export either way.',
+    });
+  } else if (zoneCount === 0) {
+    sizeDetails.push('Community designated no no-go zones, so no area is protected from siting.');
   } else {
+    const zoneNames = communityData.consensusAreaIds.map(getNoBuildAreaLabel).join(', ');
     sizeDetails.push(
-      `Community no-go zones: ${zoneCount} selected (max ${expectedMax} allowed for ${communitySizeLabel}).`
+      `Community designated ${zoneCount} no-go zone(s) of ${expectedMax} allowed at ${communitySizeLabel}: ${zoneNames}. Whether the developer respected them is tested in the siting check below, not here.`
     );
-  }
-
-  if (zoneCount > devMaxNoGo) {
-    sizeVerdict = 'fail';
-    sizeDetails.push(
-      `Community chose ${zoneCount} no-go zone(s), but the developer's ${developerData.size_km2} km² mine only allows ${devMaxNoGo}.`
-    );
-  } else if (zoneCount > 0) {
-    sizeDetails.push(
-      `No-go zones fit the developer mine limit (${devMaxNoGo} max at ${developerData.size_km2} km²).`
-    );
+    if (zoneCount > devMaxNoGo) {
+      sizeDetails.push(
+        `Note: at ${developerData.size_km2} km² the developer's own allowance would be ${devMaxNoGo}. That does not override the community's designation — it means the developer has less room to site around them.`
+      );
+    }
   }
 
   const sizeSummary =
     sizeVerdict === 'pass'
-      ? 'Mine size and no-go zone limits align between community and developer.'
+      ? 'Mine size aligns between community and developer.'
       : sizeVerdict === 'warn'
         ? 'Mine sizes are close, but not a perfect match.'
-        : 'Mine size or no-go zone rules block this deal.';
+        : 'Mine size does not align, or a results file is inconsistent.';
 
   const envDetails: string[] = [];
   let envVerdict: SectionVerdict = 'pass';
@@ -263,6 +310,14 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       `Plan: this size and rate imply a ${waterLedger.timing.mineLifeYr.toFixed(0)}-year mine life, where a reserve of this size would normally be mined over about ${waterLedger.timing.taylorLifeYr.toFixed(0)} years. Not a plan anyone would fund.`
     );
+    blockers.push({
+      kind: 'warn',
+      section: 2,
+      test: 'Mine life is plausible for the reserve (Taylor\u2019s rule)',
+      measured: `${waterLedger.timing.mineLifeYr.toFixed(1)} years at ${developerData.capacity_mton} Mt/yr`,
+      threshold: `About ${waterLedger.timing.taylorLifeYr.toFixed(0)} years for a reserve of ${(wasteLedger.tonnage.oreMinedT / 1e6).toFixed(0)} Mt`,
+      remedy: 'Lower the production rate or take a larger footprint. Nothing physical is broken here — it is a plan no lender would finance.',
+    });
   }
 
   envDetails.push(
@@ -279,11 +334,30 @@ function buildFeasibilityAnalysis(
         ? `Old Cistern: LOST. Drawdown of ${cistern.drawdownM.toFixed(2)} m against an available column of ${cistern.toleranceM.toFixed(2)} m, and no amount of grouting or reinjection reaches it. This is not a cost, it is a loss — only a smaller mine or a no-go zone avoids it.`
         : `Old Cistern: LOST at the current mitigation spend. Drawdown ${cistern.drawdownM.toFixed(2)} m against ${cistern.toleranceM.toFixed(2)} m available. About $${(cistern.spendToSaveUsd / 1e6).toFixed(1)}M more on reinjection and grouting would hold it.`
     );
+    blockers.push({
+      kind: 'fail',
+      section: 2,
+      test: 'Old Cistern keeps water in it',
+      measured: `${cistern.drawdownM.toFixed(2)} m of drawdown at the cistern${cistern.shieldedByBarrier ? ', compartment barrier intact' : ', compartment barrier breached'}`,
+      threshold: `${cistern.toleranceM.toFixed(2)} m of water column available before it runs dry`,
+      remedy:
+        cistern.spendToSaveUsd === null
+          ? null
+          : `${usdM(cistern.spendToSaveUsd)} more on reinjection and grouting, on top of the ${usdM(developerData.water_alloc)} already allocated to water`,
+    });
   } else if (cistern.verdict === 'at_risk') {
     if (envVerdict === 'pass') envVerdict = 'warn';
     envDetails.push(
       `Old Cistern: holding, but close. Drawdown ${cistern.drawdownM.toFixed(2)} m of ${cistern.toleranceM.toFixed(2)} m available.`
     );
+    blockers.push({
+      kind: 'warn',
+      section: 2,
+      test: 'Old Cistern keeps water in it',
+      measured: `${cistern.drawdownM.toFixed(2)} m of drawdown`,
+      threshold: `${cistern.toleranceM.toFixed(2)} m available — holding, with ${(cistern.toleranceM - cistern.drawdownM).toFixed(2)} m to spare`,
+      remedy: 'Holds as submitted. Any increase in pumping, or a dry year, takes it.',
+    });
   } else {
     envDetails.push(
       `Old Cistern: holds. Drawdown ${cistern.drawdownM.toFixed(2)} m of ${cistern.toleranceM.toFixed(2)} m available${cistern.shieldedByBarrier ? ', with the compartment barrier intact' : ''}.`
@@ -298,6 +372,17 @@ function buildFeasibilityAnalysis(
           ? ` About $${(wells.spendToSaveUsd / 1e6).toFixed(1)}M would recover them — unlike the cistern, this harm answers to money.`
           : '')
     );
+    blockers.push({
+      kind: 'warn',
+      section: 2,
+      test: 'Agricultural wells keep yielding',
+      measured: `${wells.drawdownM.toFixed(2)} m of drawdown at the farm wells`,
+      threshold: `${wells.toleranceM.toFixed(2)} m of available drawdown before the pumps break suction`,
+      remedy:
+        wells.spendToSaveUsd === null
+          ? null
+          : `${usdM(wells.spendToSaveUsd)} on deepening and reinjection — unlike the cistern, this harm answers to money`,
+    });
   } else {
     envDetails.push(
       `Agricultural wells: yielding. Drawdown ${wells.drawdownM.toFixed(2)} m of ${wells.toleranceM.toFixed(2)} m.`
@@ -313,10 +398,19 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       `Footprint: the dumps and impoundment need ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha, and the community licence allows ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. The plan does not fit the ground it has been given — either more tailings go underground as backfill, or the licence has to grow.`
     );
+    blockers.push({
+      kind: 'fail',
+      section: 2,
+      test: 'Disturbed ground fits inside the licence area',
+      measured: `${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha — ${Math.round(wasteLedger.footprint.wasteDumpHa)} ha of waste dump plus ${Math.round(wasteLedger.footprint.tailingsImpoundmentHa)} ha of impoundment`,
+      threshold: `${Math.round(wasteLedger.footprint.licenceAreaHa)} ha licensed — over by ${Math.round(wasteLedger.footprint.totalDisturbedHa - wasteLedger.footprint.licenceAreaHa)} ha`,
+      remedy: 'Place tailings underground as paste backfill, mine less rock, or the community grants a larger licence area. Money alone does not shrink a footprint.',
+    });
   } else {
     envDetails.push(
       `Footprint: ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha of disturbed ground against a licence of ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. Fits.`
     );
+  }
 
   // Air. Unlike water and waste, this one depends on WHERE the facilities were
   // placed, so it is computed from the siting recorded in the developer's file.
@@ -327,6 +421,14 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       'Air: not assessed. The developer file records no facility placements, and air depends on where the operation sits.'
     );
+    blockers.push({
+      kind: 'warn',
+      section: 2,
+      test: 'Air quality at the Old Town and the campus',
+      measured: 'Not assessed — no facility placements in the developer file',
+      threshold: 'PM10 40 and PM2.5 25 µg/m³ (EU limit values, binding); 15 and 5 (WHO guidelines, advisory)',
+      remedy: 'Site the facilities on the map and re-export. Air is the one dimension that depends on where things sit rather than what is spent, so it cannot be assessed without the placements.',
+    });
   } else {
     const airLedger = computeAirLedger({
       sources: airSources,
@@ -346,11 +448,33 @@ function buildFeasibilityAnalysis(
             ? 'No affordable amount of control equipment reaches the limit from this siting. This is not a cost to be weighed — the facilities have to move.'
             : `About $${(town.capitalToMeetLimitUsd / 1e6).toFixed(1)}M of control equipment would bring it inside the limit from here.`)
       );
+      blockers.push({
+        kind: 'fail',
+        section: 2,
+        test: 'Air quality inside the EU limit values (binding law)',
+        measured: `At ${town.label}, PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} µg/m³, nearest operation ${Math.round(town.nearestSourceM)} m away`,
+        threshold: 'PM10 40 and PM2.5 25 µg/m³ — Directive 2008/50/EC, not negotiable in the room',
+        remedy:
+          town.capitalToMeetLimitUsd === null
+            ? null
+            : `${usdM(town.capitalToMeetLimitUsd)} of control equipment, against the ${usdM(developerData.air_alloc)} currently allocated to air. Moving the facilities further from the town does it for nothing.`,
+      });
     } else if (town.pm25Verdict !== 'within_guideline' || town.pm10Verdict !== 'within_guideline') {
       if (envVerdict === 'pass') envVerdict = 'warn';
       envDetails.push(
         `Air: lawful but not healthy. At the Old Town, PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} ug/m3 — inside the EU limits of 40 and 25, above the WHO guidelines of 15 and 5. The nearest operation is ${Math.round(town.nearestSourceM)} m away. This is the gap the community has to argue in, because the regulation will not close it for them.`
       );
+      blockers.push({
+        kind: 'warn',
+        section: 2,
+        test: 'Air quality inside the WHO health guidelines (advisory)',
+        measured: `At ${town.label}, PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} µg/m³`,
+        threshold: 'WHO 2021: PM10 15, PM2.5 5 µg/m³. Lawful already — the EU limits of 40 and 25 are met',
+        remedy:
+          town.capitalToMeetGuidelineUsd === null
+            ? null
+            : `${usdM(town.capitalToMeetGuidelineUsd)} of control equipment. No law requires this, which is exactly why it has to be negotiated.`,
+      });
     } else {
       envDetails.push(
         `Air: within the health guidelines at the Old Town. PM10 ${town.pm10AnnualUgM3.toFixed(1)} and PM2.5 ${town.pm25AnnualUgM3.toFixed(1)} ug/m3, nearest operation ${Math.round(town.nearestSourceM)} m away.`
@@ -360,7 +484,6 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       `Air control: $${(airLedger.obligation.capitalUsd / 1e6).toFixed(1)}M of equipment from the budget, plus about $${(airLedger.obligation.annualOmUsd / 1e6).toFixed(1)}M a year to run it — $${(airLedger.obligation.lifetimeUsd / 1e6).toFixed(0)}M over ${airLedger.obligation.mineLifeYr.toFixed(0)} years. The budget charges the equipment; the running cost recurs for as long as the mine does, and the dust returns the year it stops.`
     );
-  }
   }
 
   const unfundedBenefits = communityData.selectedBenefitIds.filter(
@@ -373,9 +496,36 @@ function buildFeasibilityAnalysis(
   } else {
     if (envVerdict !== 'fail') envVerdict = 'warn';
     const names = unfundedBenefits.map(benefitLabel).join(', ');
-    envDetails.push(
-      `Benefits funding: Developer did not fund ${unfundedBenefits.length} item(s): ${names}.`
+    const scenario = {
+      mineSizeKm2: developerData.size_km2,
+      capacityTPerYr: developerData.capacity_mton,
+    };
+    const unfundedTotal = unfundedBenefits.reduce(
+      (sum, id) => sum + benefitCostUsd(id, scenario),
+      0
     );
+    const unassigned = developerData.total_budget - developerData.water_alloc -
+      developerData.air_alloc;
+    envDetails.push(
+      `Benefits funding: Developer did not fund ${unfundedBenefits.length} item(s): ${names}. Together they cost ${usdM(unfundedTotal)} of a ${usdM(developerData.total_budget)} budget.`
+    );
+    // One blocker per item, with its own price. "Did not fund the irrigation
+    // system" is not an answer anyone can act on; "the irrigation system costs
+    // $3.0M and you left $1.5M unassigned" is.
+    unfundedBenefits.forEach(id => {
+      const cost = benefitCostUsd(id, scenario);
+      blockers.push({
+        kind: 'warn',
+        section: 2,
+        test: `Community asked for: ${benefitLabel(id)}`,
+        measured: 'Not in the developer package',
+        threshold: `${usdM(cost)} to fund it`,
+        remedy:
+          unassigned >= cost
+            ? `Affordable as submitted — ${usdM(unassigned)} of the budget is still unassigned. The developer chose not to, which is a bargaining position rather than a constraint.`
+            : `${usdM(cost - Math.max(unassigned, 0))} short on the current budget. Something else gives — a smaller mitigation allocation, a different benefit, or the community drops this one.`,
+      });
+    });
   }
 
   const envSummary =
@@ -396,6 +546,14 @@ function buildFeasibilityAnalysis(
   if (facilityCount === 0) {
     mapVerdict = 'warn';
     mapDetails.push('No facility placements found in the developer file — map siting could not be verified.');
+    blockers.push({
+      kind: 'warn',
+      section: 3,
+      test: 'Facilities sit outside the community no-go zones',
+      measured: 'No placements recorded in the developer file',
+      threshold: 'Every facility clear of every designated no-go zone',
+      remedy: 'Place the facilities on the map and re-export. Until then neither siting nor air has been tested.',
+    });
   } else if (sitingConflicts.length === 0) {
     if (communityData.consensusAreaIds.length === 0) {
       mapDetails.push(
@@ -418,6 +576,14 @@ function buildFeasibilityAnalysis(
       mapDetails.push(
         `• ${facilityLabel} at (${c.placement.xPct.toFixed(0)}%, ${c.placement.yPct.toFixed(0)}%) overlaps ${zones}`
       );
+      blockers.push({
+        kind: 'fail',
+        section: 3,
+        test: `Siting: ${facilityLabel} clear of the no-go zones`,
+        measured: `Placed at (${c.placement.xPct.toFixed(0)}%, ${c.placement.yPct.toFixed(0)}%), inside ${zones}`,
+        threshold: 'Zero overlap. A no-go zone is the community\u2019s veto, so this is not a cost to be weighed against benefits',
+        remedy: `Move the ${facilityLabel.toLowerCase()} outside ${zones}, or the community withdraws that zone in the negotiation.`,
+      });
     });
   }
 
@@ -438,6 +604,7 @@ function buildFeasibilityAnalysis(
 
   return {
     status,
+    blockers,
     sections: {
       sizeAlignment: {
         title: '1. Mine size & no-go limits',
@@ -589,15 +756,6 @@ export const AdminView: React.FC = () => {
     <div className="flex-1 bg-white rounded-xl shadow-lg border border-gray-200 p-8 overflow-auto flex flex-col gap-8">
       <h2 className="text-3xl font-bold text-gray-800 border-b pb-4">Negotiation Analysis Dashboard</h2>
 
-      <div className="h-96 w-full p-1 flex flex-col min-h-0">
-        <BenefitUtilityCostChart
-          developerBudget={devBudget}
-          highlightBenefitIds={highlightBenefitIds}
-          className="flex-1 min-h-0 h-full"
-          title="Community Benefit Options Analysis"
-        />
-      </div>
-
       {communityData && developerData && (
         <AdminNegotiationMap
           noBuildZoneIds={communityData.consensusAreaIds}
@@ -744,9 +902,35 @@ export const AdminView: React.FC = () => {
             <FeasibilitySectionCard section={result.sections.sizeAlignment} />
             <FeasibilitySectionCard section={result.sections.environmentalBenefits} />
             <FeasibilitySectionCard section={result.sections.mapSiting} />
+            <WhyItFailedCard blockers={result.blockers} />
           </div>
         </div>
       )}
+
+      {/*
+        Moved below the feasibility read-out on 31 October 2026. It used to be
+        the first thing on this screen, so the first thing a facilitator saw was
+        a cloud of 31 abstract dots rather than the answer to the question they
+        had just uploaded two files to ask. It is reference material, so it
+        reads last.
+      */}
+      <div className="flex flex-col gap-2">
+        <div className="h-96 w-full p-1 flex flex-col min-h-0">
+          <BenefitUtilityCostChart
+            developerBudget={devBudget}
+            highlightBenefitIds={highlightBenefitIds}
+            className="flex-1 min-h-0 h-full"
+            title="Community Benefit Options Analysis"
+          />
+        </div>
+        <p className="text-sm text-gray-600 max-w-3xl leading-snug">
+          Every dot is one of the 31 possible combinations of the five community benefits, placed by
+          what the package costs and by a weighted utility score built from the benefits in it. It
+          is here to show whether what the community asked for was cheap or expensive next to
+          everything else they could have asked for — not to pick a winner, because utility on
+          this chart is a scoring convention and not a measure of anything in the ground.
+        </p>
+      </div>
     </div>
   );
 };
