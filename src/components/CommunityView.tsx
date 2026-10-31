@@ -256,62 +256,53 @@ export const CommunityView: React.FC = () => {
       </button>
 
       <div className="flex-[3] bg-white rounded-xl shadow-lg border border-gray-200 overflow-auto">
-        <div className="p-3 border-b bg-white sticky top-0 z-20">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-gray-700">Areas to avoid (community constraint)</div>
-              <div className="text-[10px] text-gray-500 mt-0.5">
-                {winner ? (
-                  <span className="text-gray-600 font-medium">
-                    Winning size {winner.label}:{' '}
-                    {maxNoBuildZones === 0
-                      ? 'no no-go zones allowed'
-                      : `up to ${maxNoBuildZones} no-go zone(s) — ${selectedNoBuildIds.length} selected`}
-                  </span>
-                ) : (
-                  <span className="text-gray-400 italic">Vote to determine mine size and no-go limit</span>
-                )}
-              </div>
-              <div className="text-[10px] text-gray-500 mt-0.5">
-                {selectedNoBuildIds.length === 0 ? (
-                  noBuildSummaryText
-                ) : (
-                  <span>
-                    Restricting:{' '}
-                    <span className="font-semibold text-gray-700">{noBuildSummaryText}</span>
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-1 flex-wrap justify-end">
-              {NO_BUILD_AREAS.map(area => (
-                <button
-                  key={area.id}
-                  type="button"
-                  onClick={() => toggleNoBuildArea(area.id)}
-                  disabled={noGoZoneDisabled(area.id)}
+        {/*
+          The step strip. The no-go panel used to be the first thing on this
+          screen, above the vote - and how many zones a community may name
+          depends on the winning size, so the first control on the page could
+          not be used until two later ones were done. It is now Step 4, where
+          it belongs. Beta items 16 and 42, and Janelle's note on step order.
+        */}
+        <div className="p-3 border-b bg-gray-50 sticky top-0 z-20">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { n: 1, title: 'Mine?', done: stageOneDecided },
+              { n: 2, title: 'Size', done: mineApproved && winnerId !== null && winnerId !== 'oppose' },
+              { n: 3, title: 'Benefits', done: selectedBenefitIds.length > 0 },
+              { n: 4, title: 'No-go zones', done: selectedNoBuildIds.length > 0 },
+            ].map((st, i, all) => (
+              <React.Fragment key={st.n}>
+                <span
                   className={clsx(
-                    'px-2 py-1 rounded-full text-[10px] font-bold border transition-colors',
-                    noGoZoneDisabled(area.id) && 'opacity-40 cursor-not-allowed',
-                    area.id === 'none'
-                      ? selectedNoBuildIds.length === 0
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                      : selectedNoBuildIds.includes(area.id)
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                    'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold',
+                    st.done
+                      ? 'bg-green-100 text-green-900 border border-green-300'
+                      : 'bg-white text-gray-500 border border-gray-300'
                   )}
-                  aria-pressed={
-                    area.id === 'none'
-                      ? selectedNoBuildIds.length === 0
-                      : selectedNoBuildIds.includes(area.id)
-                  }
                 >
-                  {area.label}
-                </button>
-              ))}
-            </div>
+                  <span
+                    className={clsx(
+                      'inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px]',
+                      st.done ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'
+                    )}
+                  >
+                    {st.done ? '✓' : st.n}
+                  </span>
+                  {st.title}
+                </span>
+                {i < all.length - 1 && <span className="text-gray-400 text-[10px]">›</span>}
+              </React.Fragment>
+            ))}
+            <span className="ml-auto text-[10px] text-gray-500">
+              then Submit / Export CSV, bottom left
+            </span>
           </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-gray-700">
+            <strong>Work down the page in order.</strong> Decide whether there should be a mine at
+            all, then how big, then what you ask for in return, then which ground you put beyond
+            reach. Each step sets what the next one is allowed to do — the size decides both how
+            many benefits you may name and how many no-go zones you may hold.
+          </p>
         </div>
         {/* ------------------------- STEP 1: mine or no mine ------------------------- */}
         <div className="p-3 border-b bg-white">
@@ -523,10 +514,10 @@ export const CommunityView: React.FC = () => {
 
             <tr className="border-t-2 border-blue-200">
               <td className="p-2 border font-bold bg-blue-50 align-top">
-                <div>Preferred Community Benefits</div>
+                <div>Step 3 — Which benefits do you ask for?</div>
                 <div className="text-[10px] font-normal text-gray-500 mt-0.5">
                   Select {benefitsUnlocked || '—'} benefit{benefitsUnlocked === 1 ? '' : 's'} for the
-                  community
+                  community. A larger mine unlocks more of them, which is the bargain on offer.
                 </div>
                 <div className="text-[10px] font-normal text-gray-500 mt-0.5">
                   Chosen: {selectedBenefitIds.length} / {benefitsUnlocked}
@@ -701,6 +692,72 @@ export const CommunityView: React.FC = () => {
             </ol>
           </div>
         )}
+
+        {/* ------------------------ STEP 4: areas to avoid ------------------------ */}
+        <div className="p-3 border-t-2 border-gray-300 bg-white">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Step 4 — Which ground is off limits?
+                </h3>
+                <span className="text-[10px] uppercase tracking-wide text-gray-500">
+                  how many you may name depends on the size
+                </span>
+              </div>
+              <div className="text-[10px] text-gray-500 mt-0.5">
+                {winner ? (
+                  <span className="text-gray-600 font-medium">
+                    Winning size {winner.label}:{' '}
+                    {maxNoBuildZones === 0
+                      ? 'no no-go zones allowed'
+                      : `up to ${maxNoBuildZones} no-go zone(s) — ${selectedNoBuildIds.length} selected`}
+                  </span>
+                ) : (
+                  <span className="text-gray-400 italic">Vote to determine mine size and no-go limit</span>
+                )}
+              </div>
+              <div className="text-[10px] text-gray-500 mt-0.5">
+                {selectedNoBuildIds.length === 0 ? (
+                  noBuildSummaryText
+                ) : (
+                  <span>
+                    Restricting:{' '}
+                    <span className="font-semibold text-gray-700">{noBuildSummaryText}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-1 flex-wrap justify-end">
+              {NO_BUILD_AREAS.map(area => (
+                <button
+                  key={area.id}
+                  type="button"
+                  onClick={() => toggleNoBuildArea(area.id)}
+                  disabled={noGoZoneDisabled(area.id)}
+                  className={clsx(
+                    'px-2 py-1 rounded-full text-[10px] font-bold border transition-colors',
+                    noGoZoneDisabled(area.id) && 'opacity-40 cursor-not-allowed',
+                    area.id === 'none'
+                      ? selectedNoBuildIds.length === 0
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                      : selectedNoBuildIds.includes(area.id)
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                  )}
+                  aria-pressed={
+                    area.id === 'none'
+                      ? selectedNoBuildIds.length === 0
+                      : selectedNoBuildIds.includes(area.id)
+                  }
+                >
+                  {area.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex-[2] flex flex-col gap-2 bg-white p-3 rounded-xl shadow-lg border border-gray-200 h-full">

@@ -788,6 +788,65 @@ export const AdminView: React.FC = () => {
     <div className="flex-1 bg-white rounded-xl shadow-lg border border-gray-200 p-8 overflow-auto flex flex-col gap-8">
       <h2 className="text-3xl font-bold text-gray-800 border-b pb-4">Negotiation Analysis Dashboard</h2>
 
+      {/*
+        Steps at the top, same as the other two dashboards. A facilitator
+        arriving at this screen cold sees two upload boxes and a map, and the
+        order matters: the community file sets the no-go zones that the
+        developer's siting is judged against, so loading it second makes the
+        first verdict meaningless until it refreshes.
+      */}
+      <div className="rounded-lg border border-gray-300 bg-gray-50 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[
+            { n: 1, title: 'Community file', done: communityData !== null },
+            { n: 2, title: 'Developer file', done: developerData !== null },
+            { n: 3, title: 'Read the verdict', done: result !== null },
+          ].map((st, i, all) => (
+            <React.Fragment key={st.n}>
+              <span
+                className={clsx(
+                  'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold',
+                  st.done
+                    ? 'bg-green-100 text-green-900 border border-green-300'
+                    : 'bg-white text-gray-500 border border-gray-300'
+                )}
+              >
+                <span
+                  className={clsx(
+                    'inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px]',
+                    st.done ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'
+                  )}
+                >
+                  {st.done ? '✓' : st.n}
+                </span>
+                {st.title}
+              </span>
+              {i < all.length - 1 && <span className="text-gray-400 text-[10px]">›</span>}
+            </React.Fragment>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] leading-snug text-gray-700">
+          {!communityData && !developerData ? (
+            <>
+              <strong>Load the community file first.</strong> It carries the no-go zones and the
+              agreed mine size, which are what the developer&apos;s submission is then judged
+              against.
+            </>
+          ) : !developerData ? (
+            <>
+              <strong>Now the developer file.</strong> The verdict appears once both are in, with a
+              closing card naming every failure and warning against its threshold.
+            </>
+          ) : (
+            <>
+              <strong>Both files loaded.</strong> Three checks, then a closing card naming what
+              failed, what it measured, what it had to measure, and what would change it. The
+              benefit chart at the bottom is reference material, not part of the verdict.
+            </>
+          )}
+        </p>
+      </div>
+
       {communityData && developerData && (
         <AdminNegotiationMap
           noBuildZoneIds={communityData.consensusAreaIds}
