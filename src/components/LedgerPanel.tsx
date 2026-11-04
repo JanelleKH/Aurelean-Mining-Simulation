@@ -330,7 +330,11 @@ export function LedgerPanel({
                 <p className="text-xs text-gray-600 mt-1">
                   Backfill shrinks the surface impoundment and supports the ground under the Old Town —
                   and a backfilled gallery cannot be paddled, so it also removes the underground canoe.
-                  One decision, three consequences.
+                  One decision, three consequences. The share you set is applied to the tailings
+                  tonnage, though at most about half will physically fit underground, so the
+                  impoundment shrinks without ever reaching zero — and the void left open beneath the
+                  town and the length of gallery left navigable each fall in direct proportion to the
+                  same number.
                 </p>
               </div>
 
