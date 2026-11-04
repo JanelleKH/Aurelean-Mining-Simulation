@@ -128,6 +128,32 @@ supports the ground beneath the Old Town — **and fills the galleries the
 underground canoe would use.** One decision, three consequences, which is the
 kind of coupling the instrument exists to make visible.
 
+**Where the backfill share comes from, and what it does not reach.** It is a
+participant input: a slider on the technical dashboard, carried to the
+facilitator in the exported CSV as `backfill_pct`, 0 to 100 in steps of 5. The
+column is the last in the row and is read by name through `getCsvField`, so the
+beta exports and anything produced before 4 November 2026 still load — at zero,
+which is what they meant, because until that date the slider was not reaching
+the export at all (section 8). Two things it deliberately does **not** touch,
+and a twin will want to change both:
+
+- **It costs nothing.** There is no dollar charge anywhere in the model for
+  placing tailings underground. In a real operation paste backfill is one of
+  the larger line items on a mine's cost sheet — the plant, the binder, the
+  reticulation, the delivery — and it competes with everything else in the
+  budget. Here it is free, so a team can take the smaller footprint and the
+  supported ground for nothing and pay only in galleries. That is a
+  simplification, not an observation. Pricing it is a small change to
+  `src/model/waste.ts` and a large change to the room: it moves the budget
+  arithmetic of every plan, and the participant briefings quote budgets.
+- **It does not enter the waste score.** `final_waste_ton` in the CSV comes
+  from the mitigation-spend curve and `allocWaste` alone. The physical ledger
+  and the score are two different quantities that both describe waste, which is
+  a seam worth knowing about before you build on either.
+
+What it does reach: tailings to surface, the impoundment and total disturbed
+ground, the licence-area comparison, the subsidence index, and the canoe.
+
 ### 3.3 Air — `src/model/air.ts`
 
 The only ledger that depends on **where things are** rather than only on how
@@ -311,6 +337,23 @@ reasonably wonder what else is unstated.
 - **No groundwater quality, no acid rock drainage, no seismicity.** The ledgers
   are quantity and dispersion only. For a real deposit, drainage chemistry is
   likely the first thing to add.
+- **Paste backfill is free.** See 3.2. The single largest known departure from
+  a real cost sheet, and the one most likely to change a participant's choice
+  if it were corrected.
+- **`subsidenceIndex` is computed and never used.** `postClosure.ts` derives it
+  from the unfilled void and reports it. Nothing reads it: no verdict, no
+  blocker, no read-out. So the leg of the backfill trade-off that protects the
+  Old Town is modelled and then not spoken about, while the leg that destroys
+  the canoe is enforced. A participant who backfills hears only the cost. If
+  you wire one thing into a verdict, wire this.
+- **The licence-area blocker is unreachable.** The licence allows 100 ha per
+  km² and the footprint never approaches it: across all five sizes, three
+  production rates and the full backfill range, the largest disturbed area is
+  207 ha against an 800 ha licence. The blocker in the facilitator view, and
+  its remedy text, have therefore never fired in front of a room. Check `BF7`
+  in `scripts/check-air-campus.ts` — it fails the moment a scenario does
+  exceed, which is how you will find out the branch has gone live and its
+  wording needs reading.
 
 ---
 
@@ -323,6 +366,28 @@ that, and both are cheap:
 **Check the model against data, never against another copy of itself.** The
 most expensive defects in this codebase have all had the same shape — a value
 that compiled, read plausibly, and did nothing, with a test that agreed with it.
+
+The clearest instance, kept here because it is more useful than the principle:
+until 4 November 2026 the paste-backfill slider held its value in the ledger
+panel's own React state. It moved the tonnage and hectare figures drawn
+directly beneath it, so on screen it was indistinguishable from a working
+control — and it reached nothing else. It was in no CSV column, so every plan
+reached the facilitator scored at zero backfill however the team had set it;
+and the facilitator's footprint blocker named backfill as the remedy for a
+footprint that was too large, which is advice the score had no way to receive.
+A team that followed it would have re-exported and failed in the same place,
+with the read-out insisting on the one fix that could not register. Nothing
+failed. Nothing warned. The types were correct throughout, because a number
+that is read by one component and no other is a perfectly well-typed number.
+What found it was reading the panel and asking where the value went, which no
+test will do for you.
+
+Two habits came out of it. The hook that owns the export owns the participant
+inputs, so an input and the file it must appear in cannot drift apart; and
+`LedgerPanel` takes the share and its setter as **required** props, so a caller
+cannot draw that slider without saying where the number goes. Prefer that to a
+default value whenever a control's whole purpose is to send something
+somewhere.
 
 **When something cannot be done, say so and say why.** `null` where no spend
 reaches the harm; a canoe refusal that names water or gallery length; an air
