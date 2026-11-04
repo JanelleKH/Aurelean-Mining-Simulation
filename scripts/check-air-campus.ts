@@ -31,6 +31,10 @@ import { BENEFIT_DETAILS } from '../src/data/benefitDetails.ts';
 import { BENEFIT_VALUES } from '../src/data/benefitUtility.ts';
 import { ELECTRIFICATION_REQUIRES } from '../src/model/params.ts';
 import { NOMINAL_THROUGHPUT_T_PER_YR } from '../src/model/params.ts';
+import { readFileSync } from 'node:fs';
+import { getCsvField } from '../src/utils/csvParse.ts';
+import { BACKFILL_TAILINGS_UPTAKE } from '../src/model/params.ts';
+import { CANOE_MIN_NAVIGABLE_LENGTH_M } from '../src/model/params.ts';
 import { advanceIntensityFactor } from '../src/model/hydrology.ts';
 import {
   GROUPS,
@@ -1491,6 +1495,126 @@ console.log('\n=== SIZE-TO-BENEFITS LINK ===\n');
   check('CLAIM B4  an area that is not a ballot size returns null, not zero',
     offBallot.every(n => n === null),
     `0.25/3/6/12 km2 -> ${offBallot.join(', ')}`);
+}
+
+
+// =====================================================================
+// PASTE BACKFILL: DOES THE SLIDER REACH ANYTHING
+// =====================================================================
+//
+// Added 4 November 2026. Until that day the backfill slider held its value in
+// the ledger panel's own React state: it moved the figures drawn beside it and
+// reached nothing else. It was absent from every exported CSV, so the
+// facilitator's read-out scored every plan at zero backfill, and the
+// footprint blocker advised backfill as the remedy for a footprint that was
+// too large - advice the score could not receive. These checks are what would
+// have caught that, so they are written to fail if the wiring is pulled out
+// again rather than only to confirm the arithmetic.
+console.log('\n=== PASTE BACKFILL REACHES THE EXPORT AND THE LEDGERS ===\n');
+
+{
+  // Read the exported header out of the hook itself rather than copying it
+  // here. A copy agrees with itself forever; this one fails when the export
+  // changes and these checks have not been told.
+  // Resolved from the working directory, not from import.meta.url: this script
+  // is bundled into node_modules before it runs, so a path relative to the
+  // module lands in the wrong tree.
+  const hookSrc = readFileSync(
+    `${process.cwd()}/src/hooks/useMitigationBudgetV2.ts`,
+    'utf-8',
+  );
+  const headerMatch = hookSrc.match(/baseHeader\s*=\s*\n?\s*'([^']+)'/);
+  const exportedHeader = headerMatch ? headerMatch[1] : '';
+  const headerCols = exportedHeader.split(',');
+
+  check('CLAIM BF1  the developer export carries a backfill_pct column',
+    headerCols.includes('backfill_pct'),
+    exportedHeader ? `last column: ${headerCols[headerCols.length - 1]}` : 'baseHeader not found in hook');
+
+  // The joint export appends two further columns after the base header, so
+  // backfill_pct must be read by name and never by position.
+  const jointHeader = `${exportedHeader},no_build_zones,benefit_placements`;
+  const jointValues = headerCols.map(() => '0').concat(['none', '']);
+  jointValues[headerCols.indexOf('backfill_pct')] = '45';
+  check('CLAIM BF2  backfill_pct is read by name, not by position',
+    getCsvField(jointHeader.split(','), jointValues, 'backfill_pct') === '45',
+    `joint file -> ${getCsvField(jointHeader.split(','), jointValues, 'backfill_pct')}`);
+
+  // Every file exported before today, and every beta CSV, lacks the column.
+  // Those must load as zero rather than failing or reading a neighbour.
+  const oldHeader = headerCols.filter(c => c !== 'backfill_pct');
+  const oldValues = oldHeader.map(() => '7');
+  const legacyRead = Number(getCsvField(oldHeader, oldValues, 'backfill_pct') || 0) || 0;
+  check('CLAIM BF3  a file without the column reads backfill 0, not a neighbouring value',
+    legacyRead === 0,
+    `legacy file -> ${legacyRead}`);
+
+  // The arithmetic the slider now drives, at the reference scenario.
+  const atBeta = (b: number) =>
+    computeWasteLedger({ mineSizeKm2: 4, capacityTPerYr: 3_000_000, backfillFraction: b });
+  const b0 = atBeta(0);
+  const b100 = atBeta(1);
+  check('CLAIM BF4  backfill takes tailings off the surface and shrinks the impoundment',
+    b100.tonnage.tailingsToSurfaceT < b0.tonnage.tailingsToSurfaceT &&
+      b100.footprint.tailingsImpoundmentHa < b0.footprint.tailingsImpoundmentHa,
+    `surface ${(b0.tonnage.tailingsToSurfaceT / 1e6).toFixed(1)} -> ${(b100.tonnage.tailingsToSurfaceT / 1e6).toFixed(1)} Mt, ` +
+      `impoundment ${Math.round(b0.footprint.tailingsImpoundmentHa)} -> ${Math.round(b100.footprint.tailingsImpoundmentHa)} ha`);
+
+  check('CLAIM BF5  at 100% the impoundment shrinks but does not vanish - only part fits underground',
+    b100.footprint.tailingsImpoundmentHa > 0 &&
+      Math.abs(b100.tonnage.tailingsBackfilledT / b0.tonnage.tailingsT - BACKFILL_TAILINGS_UPTAKE) < 1e-9,
+    `${Math.round(b100.footprint.tailingsImpoundmentHa)} ha left, uptake ${(b100.tonnage.tailingsBackfilledT / b0.tonnage.tailingsT).toFixed(2)} of ${BACKFILL_TAILINGS_UPTAKE}`);
+
+  const disturbed = [0, 0.25, 0.5, 0.75, 1].map(b => atBeta(b).footprint.totalDisturbedHa);
+  check('CLAIM BF6  disturbed ground falls as backfill rises, with no reversal',
+    disturbed.every((h, i) => i === 0 || h < disturbed[i - 1]),
+    disturbed.map(h => Math.round(h) + 'ha').join(' > '));
+
+  // The footprint blocker in the facilitator view is currently unreachable:
+  // the licence area is 100 ha per km2 and the footprint never comes near it
+  // at any size, rate or backfill the simulation offers. That is recorded as a
+  // fact rather than assumed, so that whoever next changes the licence
+  // constant or the footprint model is told the blocker has gone live.
+  const everExceeds = [0.5, 1, 2, 4, 8].some(km2 =>
+    [1e6, 3e6, 5e6].some(cap =>
+      [0, 0.5, 1].some(b =>
+        computeWasteLedger({ mineSizeKm2: km2, capacityTPerYr: cap, backfillFraction: b })
+          .footprint.exceedsLicenceArea)));
+  check('CLAIM BF7  no offered scenario exceeds the licence area, so that blocker is still dead code',
+    !everExceeds,
+    everExceeds
+      ? 'a scenario now exceeds the licence - the footprint blocker is live, review its wording'
+      : 'all 45 size/rate/backfill combinations fit');
+
+  // The consequence that does bite: the galleries.
+  const canoeAt = (b: number) => {
+    const w = computeWaterLedger({
+      mineSizeKm2: 4,
+      capacityTPerYr: 3_000_000,
+      waterMitigationSpendUsd: 0,
+    });
+    return computePostClosure({
+      mineSizeKm2: 4,
+      capacityTPerYr: 3_000_000,
+      storageDepletedM3: w.balance.storageDepletedM3,
+      backfillFraction: b,
+    });
+  };
+  const canoe0 = canoeAt(0);
+  const canoe90 = canoeAt(0.9);
+  check('CLAIM BF8  at 4 km2 the canoe is deliverable with no backfill and gone at 90%',
+    canoe0.canoeVerdict === 'deliverable' && canoe90.canoeVerdict !== 'deliverable',
+    `0% -> ${canoe0.canoeVerdict} (${Math.round(canoe0.navigableLengthM)} m), 90% -> ${canoe90.canoeVerdict} (${Math.round(canoe90.navigableLengthM)} m)`);
+
+  // Where the crossing sits, so the slider's own read-out can be trusted: the
+  // first setting at which the route is short of the threshold must also be
+  // the first at which the verdict stops being deliverable.
+  const steps = [0, 0.25, 0.5, 0.75, 0.9, 1];
+  const firstShort = steps.find(b => canoeAt(b).navigableLengthM < CANOE_MIN_NAVIGABLE_LENGTH_M);
+  const firstNotDeliverable = steps.find(b => canoeAt(b).canoeVerdict !== 'deliverable');
+  check('CLAIM BF9  the metres shown and the verdict given cross at the same setting',
+    firstShort === firstNotDeliverable,
+    `short of ${CANOE_MIN_NAVIGABLE_LENGTH_M} m from ${String(firstShort)}, not deliverable from ${String(firstNotDeliverable)}`);
 }
 
 

@@ -15,7 +15,11 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { computeWaterLedger, computePostClosure } from '../model/index';
+import {
+  computeWaterLedger,
+  computePostClosure,
+  CANOE_MIN_NAVIGABLE_LENGTH_M,
+} from '../model/index';
 import { benefitCostUsd, COMMUNITY_BENEFITS } from '../data/communityBenefits';
 import { benefitsUnlockedForAreaKm2 } from '../data/communityVote';
 import { LedgerPanel } from './LedgerPanel';
@@ -677,6 +681,8 @@ export const LedgerSection: React.FC<{ b: MitigationBudgetApi; benefitIds?: stri
     placedIndustrial={b.placedIndustrial}
     airControlCapitalUsd={b.allocAir}
     benefitIds={b.phase === 'benefits' ? benefitIds : undefined}
+    backfillPct={b.backfillPct}
+    onBackfillChange={b.setBackfillPct}
   />
 );
 
@@ -828,7 +834,10 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
     // The deficit decides whether the aquifer can spare the water to hold the
     // galleries flooded. Without it the gate never fires.
     storageDepletedM3: water.balance.storageDepletedM3,
-    backfillFraction: 0,
+    // The team's own backfill setting, not zero. Held at zero this panel told a
+    // team that had filled the galleries what their canoe would cost to run,
+    // which is a price for a thing that no longer exists.
+    backfillFraction: b.backfillPct / 100,
   });
   // Read the price the budget actually charges rather than repeating a literal.
   // Hard-coding it meant the panel would keep quoting a figure the benefits list
@@ -858,6 +867,18 @@ const CanoeLiability: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
           {(pc.water.rechargeM3PerYr / 1e6).toFixed(1)}M m³ it receives, just to make good what this
           mine took. Reserve water for the canoe and it comes out of the recovery. A smaller mine
           leaves enough; this one does not. Created by the harm and destroyed by too much of it.
+        </>
+      ) : pc.canoeVerdict === 'backfilled_away' || pc.canoeVerdict === 'too_short' ? (
+        <>
+          <span className="font-bold text-red-800">
+            You have paid {formatCurrency(canoePriceUsd)} for a canoe route you are filling in.
+          </span>{' '}
+          At {b.backfillPct}% backfill about {Math.round(pc.navigableLengthM)} m of gallery is left
+          navigable at the rebound horizon, and a usable route needs{' '}
+          {CANOE_MIN_NAVIGABLE_LENGTH_M} m. The money is still spent and the benefit is still
+          promised. Backfill less, or promise something you can deliver — the same paste that holds
+          the ground under the Old Town is what closes the route, and nothing in the budget resolves
+          that for you.
         </>
       ) : (
         <>

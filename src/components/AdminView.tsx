@@ -17,7 +17,13 @@ import {
   getCommunityBenefit,
   normalizeBenefitId,
 } from '../data/communityBenefits';
-import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
+import {
+  computeWasteLedger,
+  computeWaterLedger,
+  computeAirLedger,
+  computePostClosure,
+  CANOE_MIN_NAVIGABLE_LENGTH_M,
+} from '../model/index';
 import { toAirSourcesFromRecords } from '../data/airSources';
 import {
   findIndustrialNoBuildConflicts,
@@ -47,6 +53,14 @@ interface DeveloperResult {
   final_waste: number;
   selectedBenefitIds: string[];
   industrialPlacements: IndustrialPlacementRecord[];
+  /**
+   * Share of tailings the team placed underground as paste backfill, 0-100.
+   *
+   * Absent from every file exported before 4 November 2026, and from every beta
+   * CSV. Those read as 0, which is what they meant: the slider was not reaching
+   * the export then, so a plan that moved it still submitted zero.
+   */
+  backfill_pct: number;
 }
 
 const SIZE_LABELS: Record<string, string> = {
@@ -136,6 +150,9 @@ const parseCSV = (text: string, type: 'community' | 'developer'): CommunityResul
     final_waste: Number(wasteRaw || values[7]),
     selectedBenefitIds: benefitIds,
     industrialPlacements: parseIndustrialPlacements(industrialRaw),
+    // Read by name, so a file without the column loads at zero rather than
+    // failing or reading whatever sits in that position.
+    backfill_pct: Number(getCsvField(header, values, 'backfill_pct') || 0) || 0,
   } as DeveloperResult;
 };
 
@@ -343,6 +360,11 @@ function buildFeasibilityAnalysis(
   const wasteLedger = computeWasteLedger({
     mineSizeKm2: developerData.size_km2,
     capacityTPerYr: developerData.capacity_mton,
+    // Taken from the submitted file. Left out, this read the footprint of a
+    // plan with nothing underground, and then advised backfill as the remedy
+    // for a footprint that was too large - advice the score could not receive,
+    // so a team that followed it re-submitted and failed in the same place.
+    backfillFraction: developerData.backfill_pct / 100,
   });
   const cistern = waterLedger.receptors[0];
   const wells = waterLedger.receptors[1];
@@ -435,10 +457,27 @@ function buildFeasibilityAnalysis(
     `Waste and land: ${(wasteLedger.tonnage.wasteRockT / 1e6).toFixed(1)} Mt of waste rock and ${(wasteLedger.tonnage.tailingsT / 1e6).toFixed(1)} Mt of tailings over the life of the mine, from ${(wasteLedger.tonnage.oreMinedT / 1e6).toFixed(1)} Mt of ore. Waste follows the tonnage mined, not the licence area.`
   );
 
+  // Reported whether or not it binds, because it is a decision the team made
+  // and the figures beneath it cannot be read without knowing what it was set
+  // to. A file from before 4 November 2026 carries no column and reads zero.
+  if (developerData.backfill_pct > 0) {
+    envDetails.push(
+      `Backfill: ${developerData.backfill_pct}% of tailings placed underground as paste, taking ${(wasteLedger.tonnage.tailingsBackfilledT / 1e6).toFixed(1)} Mt off the surface and leaving a ${Math.round(wasteLedger.footprint.tailingsImpoundmentHa)} ha impoundment. It is the same decision that supports the ground under the Old Town and closes the galleries to the canoe.`
+    );
+  } else {
+    envDetails.push(
+      'Backfill: none. All tailings to the surface impoundment, the galleries left open, and the ground under the Old Town unsupported.'
+    );
+  }
+
   if (wasteLedger.footprint.exceedsLicenceArea) {
     envVerdict = 'fail';
     envDetails.push(
-      `Footprint: the dumps and impoundment need ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha, and the community licence allows ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. The plan does not fit the ground it has been given — either more tailings go underground as backfill, or the licence has to grow.`
+      `Footprint: the dumps and impoundment need ${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha, and the community licence allows ${Math.round(wasteLedger.footprint.licenceAreaHa)} ha. The plan does not fit the ground it has been given.${
+        developerData.backfill_pct >= 100
+          ? ' Backfill is already at 100% and the ground still does not fit: nothing is left underground to move, so this one is mine less rock or a larger licence.'
+          : ' Either more tailings go underground as backfill, or the licence has to grow.'
+      }`
     );
     blockers.push({
       kind: 'fail',
@@ -446,7 +485,10 @@ function buildFeasibilityAnalysis(
       test: 'Disturbed ground fits inside the licence area',
       measured: `${Math.round(wasteLedger.footprint.totalDisturbedHa)} ha — ${Math.round(wasteLedger.footprint.wasteDumpHa)} ha of waste dump plus ${Math.round(wasteLedger.footprint.tailingsImpoundmentHa)} ha of impoundment`,
       threshold: `${Math.round(wasteLedger.footprint.licenceAreaHa)} ha licensed — over by ${Math.round(wasteLedger.footprint.totalDisturbedHa - wasteLedger.footprint.licenceAreaHa)} ha`,
-      remedy: 'Place tailings underground as paste backfill, mine less rock, or the community grants a larger licence area. Money alone does not shrink a footprint.',
+      remedy:
+        developerData.backfill_pct >= 100
+          ? 'Backfill is already at 100%. Mine less rock, or the community grants a larger licence area. Money alone does not shrink a footprint.'
+          : `Backfill is at ${developerData.backfill_pct}%. Place more tailings underground as paste backfill, mine less rock, or the community grants a larger licence area. Money alone does not shrink a footprint.`,
     });
   } else {
     envDetails.push(
@@ -526,6 +568,39 @@ function buildFeasibilityAnalysis(
     envDetails.push(
       `Air control: $${(airLedger.obligation.capitalUsd / 1e6).toFixed(1)}M of equipment from the budget, plus about $${(airLedger.obligation.annualOmUsd / 1e6).toFixed(1)}M a year to run it — $${(airLedger.obligation.lifetimeUsd / 1e6).toFixed(0)}M over ${airLedger.obligation.mineLifeYr.toFixed(0)} years. The budget charges the equipment; the running cost recurs for as long as the mine does, and the dust returns the year it stops.`
     );
+  }
+
+  // A benefit can be funded and still be undeliverable. The canoe is the only
+  // one of the eleven whose existence depends on a physical choice made
+  // elsewhere on the developer's own dashboard: paste backfill fills the
+  // galleries the route runs through. Funded and impossible reads as a pass on
+  // the benefits test, so it is said here instead of being left for the room to
+  // discover in the year the mine closes.
+  const canoePromised =
+    communityData.selectedBenefitIds.includes('canoe') &&
+    developerData.selectedBenefitIds.includes('canoe');
+  if (canoePromised) {
+    const pc = computePostClosure({
+      mineSizeKm2: developerData.size_km2,
+      capacityTPerYr: developerData.capacity_mton,
+      storageDepletedM3: waterLedger.balance.storageDepletedM3,
+      backfillFraction: developerData.backfill_pct / 100,
+    });
+    if (pc.canoeVerdict === 'backfilled_away' || pc.canoeVerdict === 'too_short') {
+      if (envVerdict !== 'fail') envVerdict = 'warn';
+      envDetails.push(
+        `Canoe: funded, and not deliverable as planned. At ${developerData.backfill_pct}% backfill about ${Math.round(pc.navigableLengthM)} m of gallery is left navigable at the rebound horizon, against the ${CANOE_MIN_NAVIGABLE_LENGTH_M} m a route needs. The money is committed; the route is not.`
+      );
+      blockers.push({
+        kind: 'warn',
+        section: 2,
+        test: 'A funded underground canoe route is still navigable after backfill',
+        measured: `${Math.round(pc.navigableLengthM)} m of gallery at ${developerData.backfill_pct}% backfill`,
+        threshold: `${CANOE_MIN_NAVIGABLE_LENGTH_M} m navigable`,
+        remedy:
+          'Backfill less and accept the subsidence risk to the Old Town, or tell the community the canoe is off and fund something that can be built. The same paste decides both.',
+      });
+    }
   }
 
   const unfundedBenefits = communityData.selectedBenefitIds.filter(

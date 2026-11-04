@@ -77,6 +77,18 @@ export function useMitigationBudgetV2({
   const [selectedCapacity, setSelectedCapacity] = useState<Capacity>(CAPACITIES[0]);
   const [selectedFacilityId, setSelectedFacilityId] = useState<AirTierId>('extraction');
 
+  /**
+   * Share of tailings placed underground as paste backfill, 0-100.
+   *
+   * This lives in the hook rather than in the ledger panel that draws the
+   * slider, because the number has to leave the panel: it enters the waste
+   * tonnage and footprint, it enters the subsidence and canoe verdicts after
+   * closure, and it has to reach the exported CSV or the facilitator scores a
+   * plan against a figure the team never set. Held in the panel it moved the
+   * read-out on screen and nothing else.
+   */
+  const [backfillPct, setBackfillPct] = useState(0);
+
   const [allocWater, setAllocWater] = useState(MITIGATION_SPEND_MIN_USD);
   const [allocWaste, setAllocWaste] = useState(MITIGATION_SPEND_MIN_USD);
   const [allocAir, setAllocAir] = useState(0);
@@ -394,9 +406,9 @@ export function useMitigationBudgetV2({
     const benefitIdsStr = selectedBenefits.join('|');
     const tier = selectedFacility;
     const industrialStr = escapeCsvField(serializeIndustrialPlacements(placedIndustrial));
-    const baseRow = `${selectedSize.value},${selectedCapacity.value},${totalBudget},${allocWater},${allocWaste},${allocAir},${communitySpend},${W_final.toFixed(0)},${S_final.toFixed(0)},${benefitIdsStr},${industrialStr},1,${tier.id},${allocAir},,${allocAir},${scenarioLocked ? 1 : 0},${avgChainSpreadPct.toFixed(2)},${spreadPenaltyPct.toFixed(2)},${Math.round(sitingPenaltyUsd)}`;
+    const baseRow = `${selectedSize.value},${selectedCapacity.value},${totalBudget},${allocWater},${allocWaste},${allocAir},${communitySpend},${W_final.toFixed(0)},${S_final.toFixed(0)},${benefitIdsStr},${industrialStr},1,${tier.id},${allocAir},,${allocAir},${scenarioLocked ? 1 : 0},${avgChainSpreadPct.toFixed(2)},${spreadPenaltyPct.toFixed(2)},${Math.round(sitingPenaltyUsd)},${backfillPct}`;
     const baseHeader =
-      'size_km2,capacity_mton,total_budget,water_alloc,waste_alloc,air_alloc,community_alloc,final_water_m3,final_waste_ton,selected_benefits,industrial_placements,air_quality_enabled,air_process,air_quality_aqi,air_aqi_range,air_budget_add,scenario_locked,facility_spread_pct,siting_penalty_pct,siting_penalty_usd';
+      'size_km2,capacity_mton,total_budget,water_alloc,waste_alloc,air_alloc,community_alloc,final_water_m3,final_waste_ton,selected_benefits,industrial_placements,air_quality_enabled,air_process,air_quality_aqi,air_aqi_range,air_budget_add,scenario_locked,facility_spread_pct,siting_penalty_pct,siting_penalty_usd,backfill_pct';
     let csvContent: string;
     let filename = 'mining_simulation_results.csv';
     if (jointExtras) {
@@ -439,6 +451,10 @@ export function useMitigationBudgetV2({
     allocWater,
     allocWaste,
     allocAir,
+    // The backfill share, owned here so it reaches the export and the ledgers
+    // rather than only the slider that sets it.
+    backfillPct,
+    setBackfillPct,
     lockedWaterFloor,
     lockedWasteFloor,
     lockedAirFloor,

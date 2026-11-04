@@ -18,7 +18,13 @@
  */
 
 import { useState } from 'react';
-import { computeWasteLedger, computeWaterLedger, computeAirLedger } from '../model/index';
+import {
+  computeWasteLedger,
+  computeWaterLedger,
+  computeAirLedger,
+  computePostClosure,
+  CANOE_MIN_NAVIGABLE_LENGTH_M,
+} from '../model/index';
 import { toAirSources } from '../data/airSources';
 import type { PlacedIndustrialSymbol } from './map/mapSymbols';
 
@@ -83,6 +89,18 @@ export interface LedgerPanelProps {
    * known to want the figures without hunting for them.
    */
   defaultOpen?: boolean;
+  /**
+   * Share of tailings placed underground as paste backfill, 0-100.
+   *
+   * Required, along with its setter, rather than optional with a local
+   * fallback. The slider used to hold this in the panel's own state, which
+   * meant it moved the figures on screen and reached nothing else: not the
+   * exported CSV, not the facilitator's read-out. Making the pair required is
+   * what stops that happening again - a caller cannot draw the slider without
+   * saying where the number goes.
+   */
+  backfillPct: number;
+  onBackfillChange: (pct: number) => void;
 }
 
 export function LedgerPanel({
@@ -93,8 +111,9 @@ export function LedgerPanel({
   airControlCapitalUsd = 0,
   benefitIds,
   defaultOpen = false,
+  backfillPct,
+  onBackfillChange,
 }: LedgerPanelProps) {
-  const [backfillPct, setBackfillPct] = useState(0);
   const [showDetail, setShowDetail] = useState(defaultOpen);
 
   const water = computeWaterLedger({
@@ -105,6 +124,16 @@ export function LedgerPanel({
   const waste = computeWasteLedger({
     mineSizeKm2,
     capacityTPerYr,
+    backfillFraction: backfillPct / 100,
+  });
+
+  // Computed here only so the backfill slider can report the gallery it leaves
+  // navigable. The canoe's own liability panel is elsewhere; this is the figure
+  // the person moving the slider needs in front of them while they move it.
+  const postClosure = computePostClosure({
+    mineSizeKm2,
+    capacityTPerYr,
+    storageDepletedM3: water.balance.storageDepletedM3,
     backfillFraction: backfillPct / 100,
   });
 
@@ -324,17 +353,31 @@ export function LedgerPanel({
                   max={100}
                   step={5}
                   value={backfillPct}
-                  onChange={e => setBackfillPct(Number(e.target.value))}
+                  onChange={e => onBackfillChange(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-xs text-gray-600 mt-1">
-                  Backfill shrinks the surface impoundment and supports the ground under the Old Town —
-                  and a backfilled gallery cannot be paddled, so it also removes the underground canoe.
-                  One decision, three consequences. The share you set is applied to the tailings
-                  tonnage, though at most about half will physically fit underground, so the
-                  impoundment shrinks without ever reaching zero — and the void left open beneath the
-                  town and the length of gallery left navigable each fall in direct proportion to the
-                  same number.
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  <span className="font-semibold">What it does:</span> the share you set is taken out
+                  of the tailings that reach the surface, so the three figures below move with it —
+                  less tailings stored, a smaller impoundment, less disturbed ground. Only about half
+                  of the tailings will physically fit underground, so the impoundment shrinks but
+                  never to nothing.
+                </p>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  <span className="font-semibold">What it costs:</span> the galleries. Filled ground
+                  supports the Old Town and the Old Cistern against subsidence, but a filled gallery
+                  cannot be paddled. A canoe route needs{' '}
+                  {CANOE_MIN_NAVIGABLE_LENGTH_M} m left open, and at this setting{' '}
+                  <span
+                    className={
+                      postClosure.navigableLengthM < CANOE_MIN_NAVIGABLE_LENGTH_M
+                        ? 'font-bold text-red-700'
+                        : 'font-semibold'
+                    }
+                  >
+                    {fmt(postClosure.navigableLengthM)} m
+                  </span>{' '}
+                  is navigable. One decision, pulling three ways at once.
                 </p>
               </div>
 
