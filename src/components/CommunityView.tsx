@@ -729,6 +729,14 @@ export const CommunityView: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/*
+          Clearance for the floating Submit / Export CSV button, which is
+          absolutely positioned at the bottom left of this column. Without it
+          the button lands on the Step 4 read-out once the column is scrolled
+          to the end, which is exactly when a team is reading that line.
+        */}
+        <div aria-hidden className="h-20 shrink-0" />
       </div>
 
       <div className="flex-[2] flex flex-col gap-2 bg-white p-3 rounded-xl shadow-lg border border-gray-200 h-full">
