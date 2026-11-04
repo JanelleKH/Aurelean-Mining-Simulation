@@ -144,8 +144,15 @@ and a twin will want to change both:
   budget. Here it is free, so a team can take the smaller footprint and the
   supported ground for nothing and pay only in galleries. That is a
   simplification, not an observation. Pricing it is a small change to
-  `src/model/waste.ts` and a large change to the room: it moves the budget
-  arithmetic of every plan, and the participant briefings quote budgets.
+  `src/model/waste.ts` and a large one to the exercise, and the reason is
+  scale rather than taste: at 4 km2 a full-slider plan places about 28 Mt
+  underground, against a total mitigation budget of $20.6M at that scenario.
+  Even at a dollar a tonne — an order of magnitude below any real figure —
+  backfill costs more than the whole budget, water, waste, air and community
+  benefits together. So an honest price removes the option at every setting,
+  and a price low enough to be playable is a calibration with no source. If a
+  twin prices it, the budget has to be rebuilt around it rather than the
+  charge dropped into the existing one.
 - **It does not enter the waste score.** `final_waste_ton` in the CSV comes
   from the mitigation-spend curve and `allocWaste` alone. The physical ledger
   and the score are two different quantities that both describe waste, which is
