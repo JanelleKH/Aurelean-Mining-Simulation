@@ -18,6 +18,9 @@ import {
   airAssuranceUsd,
   clampMitigationLeverSpend,
   computeTotalBudget,
+  WASTE_SPEND_MAX_USD,
+  MINE_SIZES,
+  CAPACITIES,
 } from '../src/data/mitigationConstants.ts';
 import {
   benefitCostUsd,
@@ -1651,6 +1654,47 @@ console.log('\n=== PASTE BACKFILL REACHES THE EXPORT AND THE LEDGERS ===\n');
   const shipsShut =
     /defaultOpen = false/.test(panelSrc) && !/defaultOpen=\{?true/.test(sectionsSrc);
   const collapsed = panelSrc.split('{!showDetail && (')[1]?.split('{showDetail && (')[0] ?? '';
+  // ---- slider geometry, added on the afternoon of 4 November ----
+  //
+  // The track used to run to a flat cap at every scenario and to START at the
+  // locked floor. Both were wrong at the small end: at 0.5 km2 / 0.5 Mt the
+  // budget is $600k against a $10.3M cap, so 97% of the travel was dead, and
+  // a handle parked hard left showed nothing for having locked. The track now
+  // starts at zero with the regulatory minimum shaded, and ends at what the
+  // scenario can pay for. These two checks hold the safety properties.
+  const sliderMax = (cap: number, tb: number) => Math.max(cap > tb ? tb : cap, 1);
+  const combos = MINE_SIZES.flatMap((_m, mi) => CAPACITIES.map((_c, ci) => ({ mi, ci })));
+
+  // Floors are whatever the allocations were at lock: water tracks capacity
+  // steps, waste tracks mine steps. Hiding a setting a team could afford would
+  // be a real regression, so this asserts the range never does that.
+  const hidden = combos.filter(({ mi, ci }) => {
+    const tb = computeTotalBudget(mi, ci, 0);
+    const waterFloor = MITIGATION_SPEND_MIN_USD + ci * MITIGATION_STEP_USD;
+    const wasteFloor = MITIGATION_SPEND_MIN_USD + mi * MITIGATION_STEP_USD;
+    const waterReachable = Math.min(WATER_SPEND_MAX_USD, tb - wasteFloor);
+    const wasteReachable = Math.min(WASTE_SPEND_MAX_USD, tb - waterFloor);
+    return sliderMax(WATER_SPEND_MAX_USD, tb) < waterReachable
+      || sliderMax(WASTE_SPEND_MAX_USD, tb) < wasteReachable;
+  });
+  check('CLAIM BF13  no scenario has its range cut below what the team could actually spend',
+    hidden.length === 0,
+    hidden.length ? hidden.map(h => `mine ${h.mi}/cap ${h.ci}`).join(', ')
+                  : `all ${combos.length} scenarios keep every affordable setting reachable`);
+
+  // The shaded band is the mandatory part of the track. If it ever filled the
+  // track the control would be a decoration, and if it overflowed the
+  // gradient would be drawn past 100% and the floor would look reachable when
+  // it is not.
+  const bands = combos.map(({ mi, ci }) => {
+    const tb = computeTotalBudget(mi, ci, 0);
+    const waterFloor = MITIGATION_SPEND_MIN_USD + ci * MITIGATION_STEP_USD;
+    return waterFloor / sliderMax(WATER_SPEND_MAX_USD, tb);
+  });
+  check('CLAIM BF14  the regulatory band always fits inside the track and never fills it',
+    bands.every(b => b > 0 && b <= 1) && bands.every(b => b < 1),
+    `band spans ${(Math.min(...bands) * 100).toFixed(0)}%-${(Math.max(...bands) * 100).toFixed(0)}% of the water track`);
+
   check('CLAIM BF12  the collapsed panel names the backfill choice, because the panel ships shut',
     shipsShut && /paste backfill/i.test(collapsed),
     shipsShut

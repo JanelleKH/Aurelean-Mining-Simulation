@@ -490,7 +490,100 @@ const MathPanel: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
   );
 };
 
+
+/**
+ * Slider geometry for the mitigation levers.
+ *
+ * Two problems, found on run morning 4 November 2026 and fixed together,
+ * because fixing either alone makes the other worse.
+ *
+ * The track used to run to a flat cap - $10.3M for water - at every scenario.
+ * At 0.5 km2 / 0.5 Mt the whole budget is $600,000, so about 97% of the
+ * travel was unreachable and the handle would not visibly move. Teams read
+ * that as a broken control. So the top of the range is now whatever the
+ * scenario can actually pay for, and the step gets finer when the range is
+ * small, or a $600k track would have two usable stops.
+ *
+ * The track also used to START at the locked floor, which put the handle hard
+ * left whether or not the floor had been met - nothing to show for locking.
+ * Starting it at zero fixes that, but on a plain track it creates a worse
+ * misreading: at 4 km2 the water floor is $4.3M of a $10.3M cap, so a
+ * mandatory minimum would be drawn 42% of the way up and read as a choice the
+ * team had made. Hence the band: everything below the floor is shaded as the
+ * regulatory minimum and everything above it is the team's own money. Air has
+ * no floor, so its band has zero width and its zero is a true zero - which is
+ * what keeps the three levers honestly comparable.
+ */
+const sliderMaxUsd = (capUsd: number, totalBudgetUsd: number) =>
+  Math.max(capUsd > totalBudgetUsd ? totalBudgetUsd : capUsd, 1);
+
+const sliderStepUsd = (maxUsd: number) =>
+  maxUsd <= 2_000_000 ? 50_000 : MITIGATION_SLIDER_STEP_USD;
+
+/**
+ * The mandatory stretch of a lever, drawn as its own strip under the track.
+ *
+ * First attempt painted it as the input's background. It was invisible:
+ * Chrome's accent-color fills the whole track to the left of the thumb, which
+ * is exactly the stretch the band occupies, so the band was buried under the
+ * fill at every setting that mattered. A separate strip is less elegant and
+ * survives the browser painting whatever it likes over the control.
+ */
+const FloorBar: React.FC<{ floorUsd: number; maxUsd: number; tone: string }> = ({
+  floorUsd,
+  maxUsd,
+  tone,
+}) => {
+  const pct = Math.max(0, Math.min(100, (floorUsd / maxUsd) * 100));
+  if (pct <= 0) return null;
+  return (
+    <div
+      aria-hidden="true"
+      className="flex h-1 w-full overflow-hidden rounded-sm -mt-0.5"
+      title="Shaded: the regulatory minimum. Clear: your own money."
+    >
+      <div className="bg-slate-500" style={{ width: `${pct}%` }} />
+      <div className={clsx('flex-1', tone)} />
+    </div>
+  );
+};
+
+/** The caption under a lever, naming the band rather than leaving it to be guessed. */
+const FloorNote: React.FC<{
+  floorUsd: number;
+  allocUsd: number;
+  label: string;
+  /** Unassigned budget. Zero means there is nothing to drag up with. */
+  headroomUsd: number;
+}> = ({ floorUsd, allocUsd, label, headroomUsd }) =>
+  floorUsd <= 0 ? (
+    <span>No regulatory minimum on {label} — this one starts at a true zero.</span>
+  ) : (
+    <span>
+      <span className="font-semibold text-gray-700">
+        Regulatory minimum {formatCurrency(floorUsd)} met
+      </span>{' '}
+      — the shaded bar under the track.{' '}
+      {allocUsd > floorUsd ? (
+        `${formatCurrency(allocUsd - floorUsd)} of your own money above it.`
+      ) : headroomUsd > 0 ? (
+        'Drag above it to spend your own.'
+      ) : (
+        // Telling a team to drag up when the budget is already fully committed
+        // is advice the model cannot receive - the same fault as the footprint
+        // blocker recommending backfill it could not read.
+        <span className="text-amber-800">
+          Nothing unassigned to go above it: this scenario&rsquo;s budget is spent on the minimums.
+        </span>
+      )}
+    </span>
+  );
+
 export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({ b }) => {
+  // Ceilings for this scenario. At every size above the smallest the budget
+  // already exceeds the cap, so these are the caps and nothing changes.
+  const waterMax = sliderMaxUsd(b.WATER_SPEND_MAX_USD, b.totalBudget);
+  const wasteMax = sliderMaxUsd(b.WASTE_SPEND_MAX_USD, b.totalBudget);
   const active = b.phase === 'mitigation';
   const [showMath, setShowMath] = React.useState(false);
   return (
@@ -532,22 +625,38 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         </div>
         <input
           type="range"
-          min={b.MITIGATION_SPEND_MIN_USD}
-          max={b.WATER_SPEND_MAX_USD}
-          step={MITIGATION_SLIDER_STEP_USD}
+          min={0}
+          max={waterMax}
+          step={sliderStepUsd(waterMax)}
           value={b.allocWater}
           disabled={!active}
+          // applyWaterTarget raises anything below the floor back to it, so a
+          // minimum of zero is safe: the thumb cannot be parked below the
+          // regulatory minimum, it just snaps back onto the band's edge.
           onChange={e => b.applyWaterTarget(Number(e.target.value))}
           className={clsx(
             'w-full h-2 bg-gray-200 rounded-lg appearance-none accent-blue-600',
             active ? 'cursor-pointer' : 'cursor-not-allowed'
           )}
         />
+        <FloorBar floorUsd={b.lockedWaterFloor} maxUsd={waterMax} tone="bg-blue-200" />
+        <div className="text-[10px] text-gray-500 leading-snug">
+          {active ? (
+            <FloorNote
+              floorUsd={b.lockedWaterFloor}
+              allocUsd={b.allocWater}
+              label="water"
+              headroomUsd={b.unassignedBudget}
+            />
+          ) : (
+            'Available in Step 3'
+          )}
+        </div>
         <div className="flex justify-between text-[10px] text-gray-500">
           <span>
             {active
-              ? `Min locked ${formatCurrency(b.lockedWaterFloor)} — drag up only`
-              : 'Available in Step 3'}
+              ? `Ceiling ${formatCurrency(waterMax)} at this scenario — drag up only`
+              : ''}
           </span>
           <span className="font-bold text-blue-600">
             Result: {formatNumber(b.targetWaterM3)} m³ ({b.waterReduction.toFixed(0)}% ↓)
@@ -569,9 +678,9 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
         </div>
         <input
           type="range"
-          min={b.MITIGATION_SPEND_MIN_USD}
-          max={b.WASTE_SPEND_MAX_USD}
-          step={MITIGATION_SLIDER_STEP_USD}
+          min={0}
+          max={wasteMax}
+          step={sliderStepUsd(wasteMax)}
           value={b.allocWaste}
           disabled={!active}
           onChange={e => b.applyWasteTarget(Number(e.target.value))}
@@ -580,11 +689,24 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
             active ? 'cursor-pointer' : 'cursor-not-allowed'
           )}
         />
+        <FloorBar floorUsd={b.lockedWasteFloor} maxUsd={wasteMax} tone="bg-orange-200" />
+        <div className="text-[10px] text-gray-500 leading-snug">
+          {active ? (
+            <FloorNote
+              floorUsd={b.lockedWasteFloor}
+              allocUsd={b.allocWaste}
+              label="waste"
+              headroomUsd={b.unassignedBudget}
+            />
+          ) : (
+            'Available in Step 3'
+          )}
+        </div>
         <div className="flex justify-between text-[10px] text-gray-500">
           <span>
             {active
-              ? `Min locked ${formatCurrency(b.lockedWasteFloor)} — drag up only`
-              : 'Available in Step 3'}
+              ? `Ceiling ${formatCurrency(wasteMax)} at this scenario — drag up only`
+              : ''}
           </span>
           <span className="font-bold text-orange-600">
             Result: {formatNumber(b.targetWasteTon)} tons ({b.wasteReduction.toFixed(0)}% ↓)
@@ -617,12 +739,21 @@ export const MitigationSlidersSection: React.FC<{ b: MitigationBudgetApi }> = ({
             active ? 'cursor-pointer' : 'cursor-not-allowed'
           )}
         />
+        <FloorBar floorUsd={b.lockedAirFloor} maxUsd={b.AIR_SPEND_MAX_USD} tone="bg-gray-200" />
+        <div className="text-[10px] text-gray-500 leading-snug">
+          {active ? (
+            <FloorNote
+              floorUsd={b.lockedAirFloor}
+              allocUsd={b.allocAir}
+              label="air"
+              headroomUsd={b.unassignedBudget}
+            />
+          ) : (
+            'Available in Step 3'
+          )}
+        </div>
         <div className="flex justify-between text-[10px] text-gray-500">
-          <span>
-            {active
-              ? `Min locked ${formatCurrency(b.lockedAirFloor)} — drag up only · ${b.selectedFacility.label}`
-              : 'Available in Step 3'}
-          </span>
+          <span>{active ? b.selectedFacility.label : ''}</span>
           {/*
             The AQI band that used to sit here came from a per-tier constant with
             no source, no receptor and no distance behind it, and it contradicted
