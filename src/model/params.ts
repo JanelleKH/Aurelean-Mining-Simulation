@@ -509,12 +509,35 @@ export const FACILITY_SO2_G_PER_S: Record<string, number> = {
 };
 
 /* ---- Control effectiveness ------------------------------------------
- * The contrast with water. Watering unpaved roads gives 50-75% control
- * and chemical stabilisers up to 90% (AP-42 13.2.2); enclosure and
- * baghouses on transfer points reach 95-99%; scrubbers on roasting
- * gases 90-95%. So the ceiling here is high, and the reason air is
- * still a problem is not that control fails but that it must be paid
- * for continuously.
+ * The ceiling is high, and the reason air is still a problem is not that
+ * control fails but that it must be paid for continuously.
+ *
+ * REVISED 4 November 2026, after a reviewer objected that water is a poor
+ * way to control dust and scarce here besides. Correct on both counts, and
+ * the previous comment led with watering as though it were the assumed
+ * method. It is not, and 0.85 is not a watering figure.
+ *
+ *   watering unpaved roads   50-75%, and decaying between applications:
+ *                            untreated surfaces lose most of their moisture
+ *                            within about 18 hours at 25 C
+ *   chemical stabilisers     up to 90%
+ *   enclosure and baghouses  95-99% on transfer points
+ *   scrubbers                90-95% on roasting gases
+ *
+ * So 0.85 is the stabiliser end, which is also the only defensible operator
+ * in a basin where the aquifer is the thing at stake. A one-year trial at a
+ * Chilean copper mine found water-only haul roads used 153x the water of
+ * roads treated with magnesium chloride brine - about 99% more - and still
+ * produced 3.4x the dust (Thompson et al., J. Cleaner Production 2019). The
+ * brine in that study is a byproduct of lithium production, which is what
+ * this deposit is.
+ *
+ * What this model therefore does NOT carry, and a twin should: the choice
+ * between the two is a water quantity / water quality trade. Watering draws
+ * the aquifer; brine puts chloride on the ground above a karst system that
+ * feeds the Old Cistern. There is no groundwater quality dimension here, so
+ * only one side of that is computable - which is why it is documented and
+ * not offered as a control. See the work plan, B10.
  */
 export const DUST_CONTROL_MAX_EFFECTIVENESS = 0.85;
 export const STACK_CONTROL_MAX_EFFECTIVENESS = 0.95;
