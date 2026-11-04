@@ -152,7 +152,12 @@ and a twin will want to change both:
   a seam worth knowing about before you build on either.
 
 What it does reach: tailings to surface, the impoundment and total disturbed
-ground, the licence-area comparison, the subsidence index, and the canoe.
+ground, the licence-area comparison, the subsidence index, and the canoe. The
+last two are the whole substance of the control, and they pull against each
+other — the paste that holds the ground under the historic quarter is the paste
+that fills the route the canoe would use. Both are now on screen with live
+figures; neither is resolvable with money, which is why the slider is the one
+place in the instrument where a team cannot spend its way out of a choice.
 
 ### 3.3 Air — `src/model/air.ts`
 
@@ -340,12 +345,20 @@ reasonably wonder what else is unstated.
 - **Paste backfill is free.** See 3.2. The single largest known departure from
   a real cost sheet, and the one most likely to change a participant's choice
   if it were corrected.
-- **`subsidenceIndex` is computed and never used.** `postClosure.ts` derives it
-  from the unfilled void and reports it. Nothing reads it: no verdict, no
-  blocker, no read-out. So the leg of the backfill trade-off that protects the
-  Old Town is modelled and then not spoken about, while the leg that destroys
-  the canoe is enforced. A participant who backfills hears only the cost. If
-  you wire one thing into a verdict, wire this.
+- **`subsidenceIndex` reaches two read-outs and no verdict.** Until 4 November
+  2026 it reached nothing at all: `postClosure.ts` derived it and reported it,
+  and no verdict, blocker or screen consumed it, so the leg of the backfill
+  trade-off that protects the Old Town was modelled and never spoken about
+  while the leg that destroys the canoe was enforced. A participant who
+  backfilled heard only the cost, which made backfill a strictly dominated
+  choice. It is now quoted beside the slider and in the facilitator read-out,
+  in both cases as a level and its unfilled baseline, because the index is
+  normalised against the largest void in the scenario space and the level
+  alone does not say what a team's own decision changed. It still enters **no
+  verdict**, deliberately: there is no defensible threshold below which the
+  ground is safe, and inventing one would turn a figure the room has to argue
+  about into a box the model ticks. If a twin has real geotechnical ground
+  conditions, this is the first place a threshold could honestly go.
 - **The licence-area blocker is unreachable.** The licence allows 100 ha per
   km² and the footprint never approaches it: across all five sizes, three
   production rates and the full backfill range, the largest disturbed area is

@@ -366,6 +366,24 @@ function buildFeasibilityAnalysis(
     // so a team that followed it re-submitted and failed in the same place.
     backfillFraction: developerData.backfill_pct / 100,
   });
+  // Post-closure at the submitted backfill, and the same scenario with nothing
+  // underground. Both are needed: the index is normalised against the largest
+  // void in the scenario space, so the level alone does not say what this
+  // team's own decision changed.
+  const postClosure = computePostClosure({
+    mineSizeKm2: developerData.size_km2,
+    capacityTPerYr: developerData.capacity_mton,
+    storageDepletedM3: waterLedger.balance.storageDepletedM3,
+    backfillFraction: developerData.backfill_pct / 100,
+  });
+  const unfilledSubsidenceIndex = computePostClosure({
+    mineSizeKm2: developerData.size_km2,
+    capacityTPerYr: developerData.capacity_mton,
+    storageDepletedM3: waterLedger.balance.storageDepletedM3,
+    backfillFraction: 0,
+  }).subsidenceIndex;
+  const pctVoid = (x: number) => `${Math.round(x * 100)}%`;
+
   const cistern = waterLedger.receptors[0];
   const wells = waterLedger.receptors[1];
 
@@ -462,11 +480,17 @@ function buildFeasibilityAnalysis(
   // to. A file from before 4 November 2026 carries no column and reads zero.
   if (developerData.backfill_pct > 0) {
     envDetails.push(
-      `Backfill: ${developerData.backfill_pct}% of tailings placed underground as paste, taking ${(wasteLedger.tonnage.tailingsBackfilledT / 1e6).toFixed(1)} Mt off the surface and leaving a ${Math.round(wasteLedger.footprint.tailingsImpoundmentHa)} ha impoundment. It is the same decision that supports the ground under the Old Town and closes the galleries to the canoe.`
+      `Backfill: ${developerData.backfill_pct}% of tailings placed underground as paste, taking ${(wasteLedger.tonnage.tailingsBackfilledT / 1e6).toFixed(1)} Mt off the surface and leaving a ${Math.round(wasteLedger.footprint.tailingsImpoundmentHa)} ha impoundment. It is the same decision that holds the ground under the Old Town and closes the galleries to the canoe.`
+    );
+    envDetails.push(
+      `Old Town, after closure: the void left open under the historic quarter and the cistern falls to ${pctVoid(postClosure.subsidenceIndex)} of the largest this model can produce, from ${pctVoid(unfilledSubsidenceIndex)} unfilled. A relative exposure index, not a prediction in millimetres, and it carries no threshold: there is no figure below which the ground is safe. Nothing in the budget reaches this one either way — it is bought with paste or not at all.`
     );
   } else {
     envDetails.push(
-      'Backfill: none. All tailings to the surface impoundment, the galleries left open, and the ground under the Old Town unsupported.'
+      'Backfill: none. All tailings to the surface impoundment, and the galleries left open.'
+    );
+    envDetails.push(
+      `Old Town, after closure: the workings are left unfilled beneath the historic quarter and the twelfth-century cistern, at ${pctVoid(unfilledSubsidenceIndex)} of the largest void this model can produce. A relative exposure index, not a prediction in millimetres. No money reaches it; the only instrument is paste, and none was placed.`
     );
   }
 
@@ -580,12 +604,7 @@ function buildFeasibilityAnalysis(
     communityData.selectedBenefitIds.includes('canoe') &&
     developerData.selectedBenefitIds.includes('canoe');
   if (canoePromised) {
-    const pc = computePostClosure({
-      mineSizeKm2: developerData.size_km2,
-      capacityTPerYr: developerData.capacity_mton,
-      storageDepletedM3: waterLedger.balance.storageDepletedM3,
-      backfillFraction: developerData.backfill_pct / 100,
-    });
+    const pc = postClosure;
     if (pc.canoeVerdict === 'backfilled_away' || pc.canoeVerdict === 'too_short') {
       if (envVerdict !== 'fail') envVerdict = 'warn';
       envDetails.push(

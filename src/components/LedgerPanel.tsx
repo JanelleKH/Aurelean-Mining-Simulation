@@ -137,6 +137,17 @@ export function LedgerPanel({
     backfillFraction: backfillPct / 100,
   });
 
+  // The same scenario with nothing underground, kept only as the baseline the
+  // subsidence figure is read against. A level on its own ("25% of the largest
+  // void the model can produce") does not tell a team what their own decision
+  // bought; the pair does.
+  const unfilledSubsidenceIndex = computePostClosure({
+    mineSizeKm2,
+    capacityTPerYr,
+    storageDepletedM3: water.balance.storageDepletedM3,
+    backfillFraction: 0,
+  }).subsidenceIndex;
+
   const cistern = water.receptors[0];
   const wells = water.receptors[1];
 
@@ -364,10 +375,26 @@ export function LedgerPanel({
                   never to nothing.
                 </p>
                 <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                  <span className="font-semibold">What it costs:</span> the galleries. Filled ground
-                  supports the Old Town and the Old Cistern against subsidence, but a filled gallery
-                  cannot be paddled. A canoe route needs{' '}
-                  {CANOE_MIN_NAVIGABLE_LENGTH_M} m left open, and at this setting{' '}
+                  <span className="font-semibold">What it protects:</span> the ground under the Old
+                  Town. The workings leave a void, and what you do not fill stays open beneath a
+                  historic quarter and the twelfth-century cistern under it — neither of which can
+                  be rebuilt, and neither of which any line in this budget reaches. Void left open
+                  at this setting:{' '}
+                  <span className="font-semibold">
+                    {(postClosure.subsidenceIndex * 100).toFixed(0)}%
+                  </span>{' '}
+                  of the largest this model can produce, against{' '}
+                  <span className="font-semibold">
+                    {(unfilledSubsidenceIndex * 100).toFixed(0)}%
+                  </span>{' '}
+                  if you fill nothing. There is no threshold on this one — no figure below which it
+                  is fine — so it carries no verdict, only the number.
+                </p>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  <span className="font-semibold">What it costs:</span> the galleries. The same
+                  paste that holds the ground up fills the route, and a filled gallery cannot be
+                  paddled. A canoe route needs {CANOE_MIN_NAVIGABLE_LENGTH_M} m left open, and at
+                  this setting{' '}
                   <span
                     className={
                       postClosure.navigableLengthM < CANOE_MIN_NAVIGABLE_LENGTH_M

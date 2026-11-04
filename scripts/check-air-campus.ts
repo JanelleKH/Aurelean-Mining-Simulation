@@ -1615,6 +1615,27 @@ console.log('\n=== PASTE BACKFILL REACHES THE EXPORT AND THE LEDGERS ===\n');
   check('CLAIM BF9  the metres shown and the verdict given cross at the same setting',
     firstShort === firstNotDeliverable,
     `short of ${CANOE_MIN_NAVIGABLE_LENGTH_M} m from ${String(firstShort)}, not deliverable from ${String(firstNotDeliverable)}`);
+
+  // Added later on 4 November. Plumbing the slider showed that backfill was a
+  // pure penalty: the licence blocker is unreachable (BF7), the air gain is
+  // under 5% of PM10 and flips no verdict, and the one thing backfill protects
+  // - the ground under the Old Town - was computed and read by nothing. A team
+  // reading the dashboard saw only what filling the galleries cost them. These
+  // two checks hold the protection side of the trade in place.
+  const subs = steps.map(b => canoeAt(b).subsidenceIndex);
+  check('CLAIM BF10  the void under the Old Town falls as backfill rises, with no reversal',
+    subs.every((v, i) => i === 0 || v < subs[i - 1]) && subs[subs.length - 1] === 0,
+    steps.map((b, i) => `${b * 100}%:${(subs[i] * 100).toFixed(0)}`).join(' > '));
+
+  // The figure the panel and the facilitator read-out both quote is the pair,
+  // level and unfilled baseline. At a scenario that is not the largest in the
+  // space the baseline is below 100%, which is the case most likely to be
+  // mis-read as "already safe", so it is the one pinned here.
+  const baseline4km = canoeAt(0).subsidenceIndex;
+  const half4km = canoeAt(0.5).subsidenceIndex;
+  check('CLAIM BF11  at 4 km2 the unfilled baseline is half the worst case, and filling halves it again',
+    Math.abs(baseline4km - 0.5) < 1e-9 && Math.abs(half4km - 0.25) < 1e-9,
+    `unfilled ${(baseline4km * 100).toFixed(0)}% of worst case, 50% backfill ${(half4km * 100).toFixed(0)}%`);
 }
 
 
