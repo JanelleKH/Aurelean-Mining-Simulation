@@ -37,11 +37,13 @@ import {
   SIZE_BALLOT,
   preferredSizeLabel,
   resolveCommunityWinner,
+  benefitsUnlockedForAreaKm2,
   resolveStageOne,
   tallySizeVotes,
   type GroupId,
   type MineSizeId,
   type MineStance,
+  MINE_SIZES as COMMUNITY_MINE_SIZES,
 } from '../src/data/communityVote.ts';
 import {
   NO_BUILD_AREAS,
@@ -1417,6 +1419,78 @@ console.log('\n=== A RECEPTOR IS A PLACE, NOT A POINT ===\n');
   check('CLAIM P3  a ground-level source still bites hardest up close',
     roadNear > roadFar,
     `extraction 0.1 km from the town ${roadNear.toFixed(1)} vs 1.5 km away ${roadFar.toFixed(1)} ug/m3 PM10`);
+}
+
+
+
+// ===========================================================================
+// THE SIZE-TO-BENEFITS LINK ACROSS THE TWO SIZE TABLES (1 November 2026)
+// ===========================================================================
+//
+// Beta item 39: the cap on how many benefits a community may ask for is
+// enforced on the community dashboard and nowhere else, so in the joint
+// workspace it simply stopped applying. The decision was to show the figure
+// in the joint view rather than enforce it there — the budget is the real
+// constraint in that room — which means the figure now has to be correct in
+// a second place, looked up from an area in km2 rather than a size id.
+//
+// Two tables describe the same five sizes from opposite ends of the exercise:
+// MINE_SIZES in mitigationConstants (km2, waste floor, image) and MINE_SIZES
+// in communityVote (id, label, benefitsUnlocked). benefitsUnlockedForAreaKm2
+// is the only join between them, and a join with no test is the shape of the
+// electrification bug all over again.
+//
+// Pre-registered:
+//   CLAIM B1  Every size the developer and joint views can select resolves to
+//             a benefit count. Against the claim: any null, which would make
+//             the joint panel silently vanish for that size.
+//   CLAIM B2  The counts are strictly increasing with area, because the whole
+//             claim the cap encodes is that a bigger mine owes more. Against:
+//             any pair where a larger mine unlocks no more than a smaller one.
+//   CLAIM B3  The lookup agrees with the community table it is derived from,
+//             size for size. Against: any disagreement, which would show the
+//             joint view one number while the community dashboard enforced
+//             another.
+//   CLAIM B4  An area that is not a ballot size returns null rather than a
+//             number. Against: a silent 0, which reads as "this size unlocks
+//             nothing" instead of "this is not one of the sizes".
+
+console.log('\n=== SIZE-TO-BENEFITS LINK ===\n');
+
+{
+  const areas: number[] = [...MINE_SIZES_KM2];
+  const resolved: { a: number; n: number | null }[] = areas.map(a => ({
+    a,
+    n: benefitsUnlockedForAreaKm2(a),
+  }));
+
+  check('CLAIM B1  every selectable mine size resolves to a benefit count',
+    resolved.every(r => r.n !== null),
+    resolved.map(r => `${r.a}km2:${r.n === null ? 'NULL' : r.n}`).join('  '));
+
+  const sorted = [...resolved].sort((x, y) => x.a - y.a);
+  const monotone = sorted.every((r, i) => i === 0 || (r.n ?? -1) > (sorted[i - 1].n ?? -1));
+  check('CLAIM B2  a bigger mine unlocks strictly more benefits',
+    monotone,
+    sorted.map(r => `${r.a}:${r.n}`).join(' < '));
+
+  const mismatches = COMMUNITY_MINE_SIZES
+    .filter(m => m.id !== 'oppose')
+    .map(m => {
+      const km2 = parseFloat(m.label);
+      return { label: m.label, table: m.benefitsUnlocked, lookup: benefitsUnlockedForAreaKm2(km2) };
+    })
+    .filter(r => r.table !== r.lookup);
+  check('CLAIM B3  the lookup matches the community table size for size',
+    mismatches.length === 0,
+    mismatches.length
+      ? mismatches.map(r => `${r.label} table ${r.table} vs lookup ${r.lookup}`).join('; ')
+      : 'all five agree');
+
+  const offBallot = [0.25, 3, 6, 12].map(a => benefitsUnlockedForAreaKm2(a));
+  check('CLAIM B4  an area that is not a ballot size returns null, not zero',
+    offBallot.every(n => n === null),
+    `0.25/3/6/12 km2 -> ${offBallot.join(', ')}`);
 }
 
 

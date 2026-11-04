@@ -132,7 +132,11 @@ export const MitigationBudgetControls: React.FC<MitigationBudgetControlsProps> =
       <MitigationSlidersSection b={b} />
       <LedgerSection b={b} benefitIds={selectedBenefits} />
       <PhaseNavControls b={b} scope="mitigation" />
-      <CommunityBenefitsSection b={b} selectedBenefits={selectedBenefits} />
+      <CommunityBenefitsSection
+        b={b}
+        selectedBenefits={selectedBenefits}
+        showCommunityExpectation
+      />
       <PhaseNavControls b={b} scope="benefits" />
       {showSubmitButton && <ExportResultsButton b={b} />}
     </>

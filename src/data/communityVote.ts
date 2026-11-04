@@ -341,3 +341,36 @@ export function preferredSizeLabel(groupVotes: Record<MineSizeId, number>): stri
   if (!bestId) return 'none acceptable';
   return MINE_SIZES.find(m => m.id === bestId)?.label ?? '-';
 }
+
+/**
+ * Square kilometres as the developer and joint views hold a mine size, mapped
+ * to the community-side size id. Two tables describe the same five sizes from
+ * opposite ends of the exercise; this is the one place they are joined.
+ */
+const AREA_KM2_TO_SIZE_ID: Record<string, MineSizeId> = {
+  '0.5': '0.5km',
+  '1': '1km',
+  '2': '2km',
+  '4': '4km',
+  '8': '8km',
+};
+
+/**
+ * How many community benefits a given mine size unlocks on the community
+ * dashboard, looked up from an area in km².
+ *
+ * The cap itself is enforced only in CommunityView, and deliberately so. In
+ * the joint workspace the binding constraint is the developer's budget, which
+ * is real; a count cap on top of it would stop a group funding something both
+ * sides want and can afford, which is inventing a constraint to offset a
+ * constraint. The joint view shows this figure instead of enforcing it, so the
+ * size-to-benefits link stays visible and going past it reads as a negotiated
+ * concession rather than a gap in the rules.
+ *
+ * Returns null for an area that is not one of the five ballot sizes.
+ */
+export function benefitsUnlockedForAreaKm2(areaKm2: number): number | null {
+  const id = AREA_KM2_TO_SIZE_ID[String(areaKm2)];
+  if (!id) return null;
+  return MINE_SIZES.find(m => m.id === id)?.benefitsUnlocked ?? null;
+}

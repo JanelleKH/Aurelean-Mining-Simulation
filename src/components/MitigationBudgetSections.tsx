@@ -17,6 +17,7 @@ import {
 import clsx from 'clsx';
 import { computeWaterLedger, computePostClosure } from '../model/index';
 import { benefitCostUsd, COMMUNITY_BENEFITS } from '../data/communityBenefits';
+import { benefitsUnlockedForAreaKm2 } from '../data/communityVote';
 import { LedgerPanel } from './LedgerPanel';
 import {
   MINE_SIZES,
@@ -682,8 +683,16 @@ export const LedgerSection: React.FC<{ b: MitigationBudgetApi; benefitIds?: stri
 export const CommunityBenefitsSection: React.FC<{
   b: MitigationBudgetApi;
   selectedBenefits: string[];
-}> = ({ b, selectedBenefits }) => {
+  /**
+   * Joint workspace only. Shows what the community's own vote would have
+   * allowed at this mine size, without enforcing it — see
+   * benefitsUnlockedForAreaKm2 for why it is shown rather than capped.
+   */
+  showCommunityExpectation?: boolean;
+}> = ({ b, selectedBenefits, showCommunityExpectation = false }) => {
   const active = b.phase === 'benefits';
+  const unlocked = benefitsUnlockedForAreaKm2(b.selectedSize.value);
+  const chosen = selectedBenefits.length;
   return (
     <div
       className={clsx(
@@ -708,6 +717,27 @@ export const CommunityBenefitsSection: React.FC<{
           }}
         />
       </div>
+
+      {showCommunityExpectation && unlocked !== null && (
+        <div
+          className={clsx(
+            'mt-2 rounded border px-2 py-1.5 text-[10px] leading-snug',
+            chosen > unlocked
+              ? 'border-amber-300 bg-amber-50 text-amber-900'
+              : 'border-gray-200 bg-gray-50 text-gray-700'
+          )}
+        >
+          <span className="font-semibold">
+            A {b.selectedSize.label} mine unlocks {unlocked} benefit
+            {unlocked === 1 ? '' : 's'} on the community side. Selected here: {chosen}.
+          </span>{' '}
+          {chosen > unlocked
+            ? 'More than the size unlocks. Nothing here stops you — in this room the budget is the constraint — but it is a concession beyond what the community could have asked for on its own.'
+            : chosen < unlocked
+              ? 'Fewer than the size unlocks, so there is room the community could still ask for.'
+              : 'That matches what the size unlocks.'}
+        </div>
+      )}
 
       {/*
         Beta item 35: "explicitly say how community benefits affect water level

@@ -78,6 +78,7 @@ To ensure role separation, each interface is protected by a PIN code.
 *   **Goal**: Negotiate in a single session with live utility chart and shared controls.
 *   **Features**: No-go zone toolbar, draggable regional map (industrial + community benefit symbols), community benefit selection, developer mitigation sliders (water / waste / air), utility–cost chart with **live lever weights** (see [utility-calculation.md](docs/utility-calculation.md)).
 *   **Community UI**: Benefit costs are hidden from the social-teams view; only benefit count is shown.
+*   **Size-to-benefits link**: the benefits panel states how many benefits the chosen mine size unlocks on the community dashboard, and how many are selected here. It is shown, not enforced — in the joint phase the budget is the real constraint, and a count cap on top of it would stop a group funding something both sides want and can afford. Going past the figure is meant to read as a negotiated concession rather than a gap in the rules. See `benefitsUnlockedForAreaKm2` in `src/data/communityVote.ts`.
 *   **Submit**: **Submit Negotiation** (enabled after scenario lock) downloads `joint_negotiation_results.csv` — same mitigation fields as the developer export, plus `no_build_zones` and `benefit_placements` columns. A confetti celebration runs via the [`canvas-confetti`](https://www.npmjs.com/package/canvas-confetti) library.
 *   **No-go zones**: Five selectable regions — Mountain Trails, Old Town, Aquifer Systems, University Campus and Agriculture Lands. See [regional-map-no-go-zones.md](docs/regional-map-no-go-zones.md).
 
@@ -104,6 +105,7 @@ See **[Admin feasibility analysis](docs/admin-feasibility.md)** for full rules.
 
 ### Documentation
 
+- **[Model handover note](docs/model-handover.md)** — what the physical model calculates, the core trade-offs, which parameters are observed and which are calibrated, and the known gaps. Start here if you are porting the model into a digital twin.
 - **[Simulation equations & logic](docs/simulation-equations-and-logic.md)** — consolidated equations for budget, utility, siting, no-go zones, and admin feasibility.
 - **[Admin feasibility analysis](docs/admin-feasibility.md)** — three-section feasibility panel, map siting conflicts, overall verdict rules (PIN 5555).
 - **[Community benefit utility calculation](docs/utility-calculation.md)** — coefficients, lever weights, formulas, hover tooltips, and chart interpretation (Admin & Joint).
