@@ -1,7 +1,7 @@
 # The Aurelean model: what it calculates, and what it is for
 
 **Handover note for the digital twin engineering team**
-Janelle Knox-Hayes, MIT DUSP · 31 October 2026
+Janelle Knox-Hayes, MIT DUSP · 4 November 2026
 
 ---
 
