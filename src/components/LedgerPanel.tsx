@@ -572,6 +572,32 @@ export function LedgerPanel({
                   together and only together, electrify the haul fleet — which removes diesel exhaust and
                   does nothing for the dust raised by the wheels.
                 </p>
+                {/*
+                  Added 4 November 2026. A reviewer asked whether the model
+                  waters its haul roads, which would be both weak control and a
+                  draw on the aquifer at stake. It does not, and the figures
+                  assume it does not - but nothing on screen said so, which left
+                  the most obvious question about dust control unanswerable from
+                  the dashboard. It sits inside the detail region, so a team that
+                  opens the figures finds it and a team that does not is not made
+                  to read it.
+                */}
+                <p className="mt-2 text-xs text-gray-600">
+                  <span className="font-semibold">What the dust money buys, and what it does not.</span>{' '}
+                  Control here is specified at chemical stabiliser performance, up to 85%, not at
+                  watering. Watering unpaved roads reaches 50&ndash;75% at best and decays within a
+                  day of each application, and it spends the one thing this basin cannot spare: on a
+                  Chilean copper mine, water-only haul roads used 153 times the water of roads
+                  treated with brine and still raised 3.4 times the dust. So no part of this air
+                  figure is bought with water, and none of it appears in the water ledger above.
+                </p>
+                <p className="mt-1 text-xs text-gray-600">
+                  What replaces the water is not free, and this model does not price it: the brine
+                  that does the work is a salt, spread on the ground above a karst aquifer that
+                  feeds the Old Cistern. Quantity traded for quality. There is no groundwater
+                  quality ledger here, so that second consequence is named and not counted &mdash;
+                  it is one of the things a real site assessment would have to settle.
+                </p>
               </>
             )}
           </div>
