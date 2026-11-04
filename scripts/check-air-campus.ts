@@ -1636,6 +1636,28 @@ console.log('\n=== PASTE BACKFILL REACHES THE EXPORT AND THE LEDGERS ===\n');
   check('CLAIM BF11  at 4 km2 the unfilled baseline is half the worst case, and filling halves it again',
     Math.abs(baseline4km - 0.5) < 1e-9 && Math.abs(half4km - 0.25) < 1e-9,
     `unfilled ${(baseline4km * 100).toFixed(0)}% of worst case, 50% backfill ${(half4km * 100).toFixed(0)}%`);
+
+  // The slider sits inside the ledger panel's detail region, and that region
+  // ships shut: defaultOpen is false and no call site overrides it. So a team
+  // that never works the "Show the figures" switch never meets the control,
+  // submits zero backfill, and is then reported by the facilitator read-out as
+  // having chosen not to place any - a decision that was never put to them.
+  // The collapsed header therefore has to name the choice. A source check
+  // rather than a value check, because what it guards is a layout fact.
+  const panelSrc = readFileSync(`${process.cwd()}/src/components/LedgerPanel.tsx`, 'utf-8');
+  const sectionsSrc = readFileSync(
+    `${process.cwd()}/src/components/MitigationBudgetSections.tsx`, 'utf-8');
+
+  const shipsShut =
+    /defaultOpen = false/.test(panelSrc) && !/defaultOpen=\{?true/.test(sectionsSrc);
+  const collapsed = panelSrc.split('{!showDetail && (')[1]?.split('{showDetail && (')[0] ?? '';
+  check('CLAIM BF12  the collapsed panel names the backfill choice, because the panel ships shut',
+    shipsShut && /paste backfill/i.test(collapsed),
+    shipsShut
+      ? (/paste backfill/i.test(collapsed)
+          ? 'panel defaults closed and the shut header names the choice'
+          : 'panel defaults CLOSED and the shut header does not mention backfill - the control is unreachable without opening the figures')
+      : 'panel no longer ships shut; re-read this check, it may no longer be needed');
 }
 
 

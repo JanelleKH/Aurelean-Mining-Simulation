@@ -248,10 +248,38 @@ export function LedgerPanel({
         </div>
 
         {!showDetail && (
-          <p className="mt-2 text-[11px] text-gray-400">
-            Three verdicts, no score. Turn the switch on for the quantities, the thresholds and what
-            it would cost to avert each one.
-          </p>
+          <>
+            <p className="mt-2 text-[11px] text-gray-400">
+              Three verdicts, no score. Turn the switch on for the quantities, the thresholds and
+              what it would cost to avert each one.
+            </p>
+            {/*
+              The one control that lives behind the switch, named while the switch is still
+              shut. The slider defaults to zero and the panel defaults to closed, so a team that
+              never opens the figures submits a plan with no backfill - and the facilitator's
+              read-out reports that as a decision they never had put to them. One line, so the
+              collapsed view stays sparse: the setting and what it moves, not the figures.
+            */}
+            <p className="mt-1 text-[11px] text-gray-300">
+              <span className="font-semibold text-gray-100">
+                One choice sits behind the switch:
+              </span>{' '}
+              paste backfill,{' '}
+              {backfillPct === 0 ? (
+                <>
+                  <span className="font-semibold text-gray-100">not yet set</span>. Left at zero the
+                  galleries stay open and the void under the Old Town stays unfilled.
+                </>
+              ) : (
+                <>
+                  set to{' '}
+                  <span className="font-semibold text-gray-100">{backfillPct}%</span>.
+                </>
+              )}{' '}
+              It moves the tailings, the ground under the Old Town, and whether the canoe can exist
+              at all.
+            </p>
+          </>
         )}
       </div>
 
